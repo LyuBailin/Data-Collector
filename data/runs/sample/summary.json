@@ -1,0 +1,395 @@
+{
+  "generated_at": "2026-08-24T02:35:09.415058+00:00",
+  "total": 8,
+  "valid": 8,
+  "comments": 0,
+  "hotlist_items": 0,
+  "users": 5,
+  "by_type": {
+    "normal": 8
+  },
+  "by_sentiment": {
+    "positive": 3,
+    "negative": 3,
+    "neutral": 2
+  },
+  "engagement": {
+    "mean": 0.658271,
+    "p50": 0.282284,
+    "p90": 1.486417,
+    "max": 3.65
+  },
+  "heat": {
+    "mean": 5.354,
+    "p50": 5.3747,
+    "p90": 6.7478,
+    "max": 7.7846
+  },
+  "by_day": {
+    "2026-08-09": 1,
+    "2026-08-11": 1,
+    "2026-08-13": 1,
+    "2026-08-15": 1,
+    "2026-08-17": 1,
+    "2026-08-19": 1,
+    "2026-08-21": 1,
+    "2026-08-23": 1
+  },
+  "top_keywords": [
+    {
+      "word": "露营",
+      "freq": 2
+    },
+    {
+      "word": "装备",
+      "freq": 2
+    },
+    {
+      "word": "清单",
+      "freq": 2
+    },
+    {
+      "word": "推荐",
+      "freq": 2
+    },
+    {
+      "word": "路线",
+      "freq": 2
+    },
+    {
+      "word": "轻量化",
+      "freq": 1
+    },
+    {
+      "word": "超好",
+      "freq": 1
+    },
+    {
+      "word": "几款",
+      "freq": 1
+    },
+    {
+      "word": "测评",
+      "freq": 1
+    },
+    {
+      "word": "夏日",
+      "freq": 1
+    },
+    {
+      "word": "帐篷",
+      "freq": 1
+    },
+    {
+      "word": "1000",
+      "freq": 1
+    },
+    {
+      "word": "吐槽",
+      "freq": 1
+    },
+    {
+      "word": "差劲",
+      "freq": 1
+    },
+    {
+      "word": "漏水",
+      "freq": 1
+    },
+    {
+      "word": "不值",
+      "freq": 1
+    },
+    {
+      "word": "真的",
+      "freq": 1
+    },
+    {
+      "word": "结果",
+      "freq": 1
+    },
+    {
+      "word": "一下",
+      "freq": 1
+    },
+    {
+      "word": "扫码",
+      "freq": 1
+    }
+  ],
+  "top_topics": [
+    {
+      "topic": "露营",
+      "freq": 3
+    },
+    {
+      "topic": "旅行",
+      "freq": 2
+    },
+    {
+      "topic": "种草",
+      "freq": 2
+    },
+    {
+      "topic": "户外",
+      "freq": 2
+    },
+    {
+      "topic": "装备",
+      "freq": 2
+    },
+    {
+      "topic": "避雷",
+      "freq": 2
+    },
+    {
+      "topic": "攻略",
+      "freq": 2
+    },
+    {
+      "topic": "推荐",
+      "freq": 1
+    },
+    {
+      "topic": "轻量化",
+      "freq": 1
+    },
+    {
+      "topic": "福利",
+      "freq": 1
+    },
+    {
+      "topic": "抽奖",
+      "freq": 1
+    },
+    {
+      "topic": "优惠",
+      "freq": 1
+    },
+    {
+      "topic": "红包http",
+      "freq": 1
+    },
+    {
+      "topic": "好物",
+      "freq": 1
+    },
+    {
+      "topic": "徒步",
+      "freq": 1
+    },
+    {
+      "topic": "新手",
+      "freq": 1
+    },
+    {
+      "topic": "咖啡",
+      "freq": 1
+    },
+    {
+      "topic": "氛围",
+      "freq": 1
+    },
+    {
+      "topic": "宝藏",
+      "freq": 1
+    },
+    {
+      "topic": "上海",
+      "freq": 1
+    }
+  ],
+  "top_users": [
+    {
+      "user_id": "u5",
+      "nickname": "小白玩家",
+      "notes": 1,
+      "total_liked": 2300,
+      "total_collected": 1100,
+      "total_comment": 250,
+      "fans": 300
+    },
+    {
+      "user_id": "u1",
+      "nickname": "小A同学",
+      "notes": 2,
+      "total_liked": 1794,
+      "total_collected": 1100,
+      "total_comment": 187,
+      "fans": 5000
+    },
+    {
+      "user_id": "u4",
+      "nickname": "资深驴友",
+      "notes": 1,
+      "total_liked": 890,
+      "total_collected": 450,
+      "total_comment": 88,
+      "fans": 28000
+    },
+    {
+      "user_id": "u2",
+      "nickname": "踩雷博主",
+      "notes": 2,
+      "total_liked": 730,
+      "total_collected": 310,
+      "total_comment": 86,
+      "fans": 1200
+    },
+    {
+      "user_id": "u3",
+      "nickname": "推广号",
+      "notes": 2,
+      "total_liked": 230,
+      "total_collected": 65,
+      "total_comment": 24,
+      "fans": 30000
+    }
+  ],
+  "top_notes": [
+    {
+      "note_id": "n0",
+      "title": "夏日露营装备清单 | 轻量化测评",
+      "user": "小A同学",
+      "liked": 1234,
+      "heat_score": 7.7846,
+      "summary": "今天给大家推荐几款轻量化的露营装备,超好用!",
+      "topics": [
+        "旅行",
+        "推荐",
+        "种草",
+        "户外",
+        "装备",
+        "露营",
+        "轻量化"
+      ],
+      "sentiment": "positive",
+      "share_url": "https://www.xiaohongshu.com/explore/n0"
+    },
+    {
+      "note_id": "n4",
+      "title": "新手必看!第一次露营避坑指南",
+      "user": "小白玩家",
+      "liked": 2300,
+      "heat_score": 6.3035,
+      "summary": "整理了10个新手露营常见问题,看完再出发!",
+      "topics": [
+        "装备",
+        "攻略",
+        "新手",
+        "露营"
+      ],
+      "sentiment": "negative",
+      "share_url": "https://www.xiaohongshu.com/explore/n4"
+    },
+    {
+      "note_id": "n3",
+      "title": "3天2夜武功山徒步攻略",
+      "user": "资深驴友",
+      "liked": 890,
+      "heat_score": 5.8795,
+      "summary": "上周末和朋友去武功山徒步,分享我们的路线和装备清单。",
+      "topics": [
+        "户外",
+        "徒步",
+        "旅行",
+        "攻略"
+      ],
+      "sentiment": "neutral",
+      "share_url": "https://www.xiaohongshu.com/explore/n3"
+    },
+    {
+      "note_id": "n1",
+      "title": "踩雷了!这个帐篷真的不值",
+      "user": "踩雷博主",
+      "liked": 320,
+      "heat_score": 5.594,
+      "summary": "买了一个帐篷,1000块结果漏水。 吐槽一下,太差劲了。",
+      "topics": [
+        "避雷",
+        "露营"
+      ],
+      "sentiment": "negative",
+      "share_url": "https://www.xiaohongshu.com/explore/n1"
+    },
+    {
+      "note_id": "n5",
+      "title": "这家咖啡馆氛围感拉满",
+      "user": "小A同学",
+      "liked": 560,
+      "heat_score": 5.1554,
+      "summary": "今天发现一家宝藏咖啡馆,氛围感十足,适合拍照。",
+      "topics": [
+        "咖啡",
+        "氛围",
+        "宝藏"
+      ],
+      "sentiment": "positive",
+      "share_url": "https://www.xiaohongshu.com/explore/n5"
+    },
+    {
+      "note_id": "n6",
+      "title": "city walk 上海武康路",
+      "user": "踩雷博主",
+      "liked": 410,
+      "heat_score": 4.7884,
+      "summary": "周末city walk路线分享,沿途小店和美食推荐。",
+      "topics": [
+        "上海",
+        "citywalk"
+      ],
+      "sentiment": "positive",
+      "share_url": "https://www.xiaohongshu.com/explore/n6"
+    },
+    {
+      "note_id": "n7",
+      "title": "买了3款款款踩雷的护肤品",
+      "user": "推广号",
+      "liked": 180,
+      "heat_score": 3.9903,
+      "summary": "姐妹们千万别买! 用了过敏",
+      "topics": [
+        "避雷",
+        "护肤"
+      ],
+      "sentiment": "negative",
+      "share_url": "https://www.xiaohongshu.com/explore/n7"
+    },
+    {
+      "note_id": "n2",
+      "title": "限时优惠!扫码进群领福利 @xxx",
+      "user": "推广号",
+      "liked": 50,
+      "heat_score": 3.3365,
+      "summary": "限时优惠扫码进群 @xxx @yyy s://example.com",
+      "topics": [
+        "福利",
+        "抽奖",
+        "种草",
+        "优惠",
+        "红包http",
+        "好物"
+      ],
+      "sentiment": "neutral",
+      "share_url": "https://www.xiaohongshu.com/explore/n2"
+    }
+  ],
+  "flagged": [
+    {
+      "reason": "short_but_viral",
+      "note_id": "n0",
+      "title": "夏日露营装备清单 | 轻量化测评",
+      "ad_like_score": 0.15,
+      "liked": 1234,
+      "short": true
+    },
+    {
+      "reason": "short_but_viral",
+      "note_id": "n4",
+      "title": "新手必看!第一次露营避坑指南",
+      "ad_like_score": 0.0,
+      "liked": 2300,
+      "short": true
+    }
+  ]
+}

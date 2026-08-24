@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# 数据 / 报告 (运行时产物) - 忽略, 仅 runs/sample/ (教学示例) 入 git
+data/runs/*
+!data/runs/sample/
+
+# 指纹缓存 (含敏感信息)
+assets/fingerprint.json
+
+# 登录态 cookie (敏感, 绝不提交)
+assets/cookies.json
+
+# 抓取的 XHS JS bundle (可重建, 不提交)
+assets/bundles/
+
+# 临时文件
+*.tmp
+*.bak
+*.log
