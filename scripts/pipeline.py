@@ -133,6 +133,9 @@ def _full_pipeline(run_dir: Path, rows: list, label: str = "") -> int:
 
     raw_records = _read_jsonl(raw_path)
     cleaned = clean_mod.clean_records(raw_records)
+    if not cleaned:
+        LOG.warning("清洗后无有效记录 (raw=%d), 中断", len(raw_records))
+        return 1
     _write_jsonl(clean_path, cleaned)
     LOG.info("clean: %d -> %s", len(cleaned), clean_path)
 
@@ -232,18 +235,26 @@ def main(argv=None):
 
     LOG.info("pipeline 启动 @ %s, workspace=%s", dt.datetime.now(dt.timezone.utc).isoformat(), workspace)
     rc = 0
-    if args.keyword:
-        rc = run_keyword(args, client, workspace)
-    elif args.user:
-        rc = run_user(args, client, workspace)
-    elif args.note:
-        rc = run_note(args, client, workspace)
-    elif args.hotlist:
-        rc = run_hotlist(args, client, workspace)
-    elif args.search_user:
-        rc = run_search_user(args, client, workspace)
-    LOG.info("pipeline 结束 rc=%d", rc)
-    return rc
+    try:
+        if args.keyword:
+            rc = run_keyword(args, client, workspace)
+        elif args.user:
+            rc = run_user(args, client, workspace)
+        elif args.note:
+            rc = run_note(args, client, workspace)
+        elif args.hotlist:
+            rc = run_hotlist(args, client, workspace)
+        elif args.search_user:
+            rc = run_search_user(args, client, workspace)
+        LOG.info("pipeline 结束 rc=%d", rc)
+        return rc
+    finally:
+        # 关闭 Playwright 浏览器单例, 避免 Chromium 子进程残留
+        try:
+            from playwright_driver import shutdown_now
+            shutdown_now()
+        except Exception as exc:
+            LOG.warning("关闭浏览器单例失败: %s", exc)
 
 
 if __name__ == "__main__":

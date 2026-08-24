@@ -130,13 +130,42 @@ def clean_record(rec):
     """把单条 raw record 转成 clean record。
 
     根据 endpoint 分派:
-      - 笔记 (search/notes, user/posted, feed/note_detail, hotlist 等): 走 desc/title 清洗
+      - 笔记 (search/notes, user/posted, feed/note_detail 等): 走 desc/title 清洗
       - 评论 (comment/page, comment/page/sub): 走 content 清洗, 没有 desc/title
+      - 热门榜 (search/hotlist): 保留 word_id / query / score, 不参与笔记清洗
+      - 用户搜索 (search/users): 保留用户信息, 不参与笔记清洗
     """
     item = rec.get("item") or {}
     endpoint = rec.get("endpoint") or ""
+
+    if endpoint == "search/hotlist":
+        return {
+            "endpoint": endpoint,
+            "fetched_at": rec.get("fetched_at"),
+            "is_hotlist": True,
+            "word_id": item.get("word_id") or "",
+            "query": clean_text(item.get("query") or ""),
+            "score": int(item.get("score") or 0),
+            "category": item.get("category") or "",
+            "ts": item.get("ts") or 0,
+            "ts_iso": item.get("ts_iso"),
+        }
+
+    if endpoint == "search/users":
+        return {
+            "endpoint": endpoint,
+            "fetched_at": rec.get("fetched_at"),
+            "is_user": True,
+            "user_id": item.get("user_id"),
+            "nickname": clean_text(item.get("nickname") or ""),
+            "red_id": item.get("red_id") or "",
+            "fans": int(item.get("fans") or 0),
+            "notes": int(item.get("notes") or 0),
+            "description": clean_text(item.get("description") or ""),
+        }
+
     is_comment = endpoint.startswith("comment/")
-    is_note = endpoint in ("search/notes", "user/posted", "feed/note_detail", "search/hotlist")
+    is_note = endpoint in ("search/notes", "user/posted", "feed/note_detail")
 
     if is_comment:
         # --- 评论清洗 ---
@@ -183,7 +212,7 @@ def clean_record(rec):
     cleaned_desc = desc_plain(desc, tags)
     word_count_desc = word_count(cleaned_desc)
     word_count_title = word_count(cleaned_title)
-    tags_norm = list({t.strip() for t in tags if t and t.strip()})
+    tags_norm = list(dict.fromkeys(t.strip() for t in tags if t and t.strip()))
 
     return {
         "endpoint": endpoint,
@@ -224,6 +253,8 @@ def clean_records(records):
     去重键:
       - 笔记: note_id
       - 评论 (含子评论): comment_id
+      - 热门榜: word_id
+      - 用户搜索: user_id
     """
     cleaned: List[Dict[str, Any]] = []
     seen = set()
@@ -231,6 +262,10 @@ def clean_records(records):
         c = clean_record(rec)
         if c.get("is_comment"):
             key = c.get("comment_id")
+        elif c.get("is_hotlist"):
+            key = c.get("word_id")
+        elif c.get("is_user"):
+            key = c.get("user_id")
         else:
             key = c.get("note_id")
         if not key:

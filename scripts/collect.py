@@ -373,18 +373,26 @@ def main(argv=None):
     client.load()
 
     rows = []
-    if args.keyword:
-        rows = collect_search_notes(client, args.keyword, args.pages, args.page_size, args.sort)
-    elif args.user:
-        rows = collect_user_notes(client, args.user, args.pages)
-    elif args.note:
-        rows = collect_note_detail(client, args.note)
-        if args.with_comments:
-            rows += collect_comments(client, args.note, args.max_comment_pages, schema="v2")
-    elif args.hotlist:
-        rows = collect_hotlist(client, args.category, args.page_size)
-    elif args.search_user:
-        rows = collect_search_users(client, args.search_user, args.pages)
+    try:
+        if args.keyword:
+            rows = collect_search_notes(client, args.keyword, args.pages, args.page_size, args.sort)
+        elif args.user:
+            rows = collect_user_notes(client, args.user, args.pages)
+        elif args.note:
+            rows = collect_note_detail(client, args.note)
+            if args.with_comments:
+                rows += collect_comments(client, args.note, args.max_comment_pages, schema="v2")
+        elif args.hotlist:
+            rows = collect_hotlist(client, args.category, args.page_size)
+        elif args.search_user:
+            rows = collect_search_users(client, args.search_user, args.pages)
+    finally:
+        # 关闭 Playwright 浏览器单例, 避免 Chromium 子进程残留
+        try:
+            from playwright_driver import shutdown_now
+            shutdown_now()
+        except Exception as exc:
+            LOG.warning("关闭浏览器单例失败: %s", exc)
 
     n = _write_jsonl(Path(args.out), rows)
     print(f"已写入 {args.out}: {n} 条记录")

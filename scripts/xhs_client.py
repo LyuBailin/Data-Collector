@@ -317,12 +317,18 @@ class XHSClient:
             "Content-Type": "application/json;charset=UTF-8",
         }
 
-    def _do_browser_request(self, method, url, params=None, json_body=None):
-        """通过 Playwright 浏览器发请求 (浏览器拦截器自动加签名)。"""
-        import asyncio
+    def _do_browser_request(self, method, url, params=None, json_body=None, attempt=0):
+        """通过 Playwright 浏览器发请求 (浏览器拦截器自动加签名)。
+
+        与 _request 相同语义:
+          - HTTP 401/403 / code=-101 / code=300011 -> 抛 RuntimeError (cookie 问题, 立刻停止)
+          - code=-102 -> 等 60s 重试 (最多 max_retries 次)
+          - 其余 code != 0 -> 返回 success=False, 由调用方判断
+        """
         import json as _json
         from urllib.parse import urlencode
-        from playwright_driver import ensure_browser, do_request as _do_request
+        from playwright_driver import ensure_browser, ensure_loop, do_request as _do_request
+        loop = ensure_loop()
 
         async def _run():
             await ensure_browser()
@@ -332,28 +338,39 @@ class XHSClient:
             resp = await _do_request(method, full_url, {}, json_body)
             status = resp.get("status", 0)
             body_str = resp.get("body", "")
+            if resp.get("error"):
+                raise RuntimeError(f"浏览器内请求失败: {resp.get('error')}")
             try:
                 data = _json.loads(body_str) if body_str else {}
             except Exception:
                 data = {"_raw": body_str}
-            if status == 200 and "error" not in resp:
-                return {"code": 0, "success": True, "data": data, "_status": status}
-            if status >= 400 and status < 500:
-                return {"code": -101, "success": False, "msg": f"HTTP {status}", "data": data, "_status": status}
-            return {"code": data.get("code", -1) if isinstance(data, dict) else -1,
-                    "success": data.get("success", False) if isinstance(data, dict) else False,
-                    "msg": data.get("msg", "") if isinstance(data, dict) else "",
-                    "data": data.get("data", {}) if isinstance(data, dict) else {},
-                    "_status": status}
+            return status, data
 
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                raise RuntimeError("closed")
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        return loop.run_until_complete(_run())
+        while True:
+            status, data = loop.run_until_complete(_run())
+
+            if status in (401, 403):
+                raise RuntimeError(f"HTTP {status} —— 签名失败或被拒, 请检查 cookie 是否完整, 必要时重新启动 Chromium")
+
+            if status == 200 and isinstance(data, dict):
+                code = data.get("code")
+                if code not in (None, 0):
+                    msg = str(data.get("msg") or "")
+                    if code in (-101,) or "login" in msg.lower():
+                        raise RuntimeError("登录态失效 (code=-101), 请重新提供 cookie")
+                    if code == 300011:
+                        raise RuntimeError(f"账号状态异常 (code=300011): {msg} —— 请换一组新鲜 cookie 后重试")
+                    if code == -102 and attempt < self.max_retries:
+                        attempt += 1
+                        LOG.warning("风控触发 (code=-102), 等待 60s 后重试 (第 %d 次)", attempt)
+                        time.sleep(60)
+                        continue
+                    return {"code": code, "success": False, "msg": msg,
+                            "data": data.get("data") or {}, "_status": status}
+                return {"code": 0, "success": True, "data": data, "_status": status}
+
+            return {"code": -1, "success": False, "msg": f"HTTP {status} / 非 JSON 响应",
+                    "data": data, "_status": status}
 
     def get(self, url, params=None, referer=None):
         if self.sign_engine == "browser":

@@ -45,6 +45,20 @@ API_BASE_URL = "https://edith.xiaohongshu.com"
 _browser_ctx: Optional[BrowserContext] = None
 _browser_page: Optional[Page] = None
 _playwright = None
+_browser_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def ensure_loop() -> asyncio.AbstractEventLoop:
+    """返回进程内复用的 event loop (浏览器单例挂在这个 loop 上)。
+
+    所有浏览器操作 (ensure_browser / do_request / shutdown) 必须在
+    同一个 loop 上执行, 否则 Playwright 会报 "attached to a different loop"。
+    """
+    global _browser_loop
+    if _browser_loop is None or _browser_loop.is_closed():
+        _browser_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(_browser_loop)
+    return _browser_loop
 
 
 def load_cookies(path: str | Path) -> List[Dict[str, Any]]:
@@ -165,27 +179,44 @@ async def do_request(method: str, url: str, headers: Dict[str, str], body: Any) 
         }
     }
     """
-    # Use page.request which uses browser's HTTP stack with auto-signing
+    # 用浏览器内的 fetch 发请求, XHS 的全局拦截器 (含 fetch hook) 会自动加签名
     apiResp = await page.evaluate(script, {"method": method, "url": url, "headers": headers, "body": body_str})
     return apiResp
 
 
 async def shutdown():
-    global _browser_ctx, _playwright
+    global _browser_ctx, _browser_page, _playwright
     if _browser_ctx:
-        try: await _browser_ctx.close()
-        except: pass
+        try:
+            await _browser_ctx.close()
+        except Exception:
+            pass
         _browser_ctx = None
+        _browser_page = None
     if _playwright:
-        try: await _playwright.stop()
-        except: pass
+        try:
+            await _playwright.stop()
+        except Exception:
+            pass
         _playwright = None
+
+
+def shutdown_now() -> None:
+    """同步关闭浏览器单例 (在浏览器所在的 event loop 上执行)。幂等。"""
+    if _browser_ctx is None and _playwright is None:
+        return
+    try:
+        ensure_loop().run_until_complete(shutdown())
+        LOG.info("browser singleton shutdown OK")
+    except Exception as exc:
+        LOG.warning("shutdown 异常: %s", exc)
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Playwright 驱动 XHS 浏览器抓取")
     parser.add_argument("--probe", action="store_true", help="只探测浏览器状态")
     parser.add_argument("--request", help="JSON 字符串: {method, url, headers, body}")
+    parser.add_argument("--shutdown", action="store_true", help="关闭当前进程的浏览器单例 (幂等)")
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args(argv)
 
@@ -208,7 +239,11 @@ def main(argv=None) -> int:
                 )
                 print(json.dumps(resp, ensure_ascii=False, indent=2))
                 return 0
-            LOG.error("use --probe or --request")
+            if args.shutdown:
+                shutdown_now()
+                print("browser shutdown OK")
+                return 0
+            LOG.error("use --probe / --request / --shutdown")
             return 1
         finally:
             await shutdown()

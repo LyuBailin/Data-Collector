@@ -303,7 +303,7 @@ def enrich_comment(rec):
         rec["heat_score"] = round(0.5 * rec.get("liked", 0), 4)
         rec["ad_like_score"] = ad_like_score(content, [])
         rec["is_short"] = bool(rec.get("word_count", 0) < 15)
-    rec["enriched_at"] = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+    rec["enriched_at"] = datetime.now(timezone.utc).isoformat()
     return rec
 
 def enrich_records(records):

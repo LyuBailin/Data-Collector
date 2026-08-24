@@ -54,7 +54,7 @@ collect  ->  clean  ->  enrich  ->  analyze
 
 ### 限速 / 风控
 - 默认每次请求 `1.0–2.0s` 随机 jitter; 抓取深度默认 ≤3 页。
-- 浏览器引擎每次抓取会复用同一个 `BrowserContext` (避免重复启动 Chromium), 抓完一批后用 `python scripts/playwright_driver.py --shutdown` 显式关闭。
+- 浏览器引擎每次抓取会复用同一个 `BrowserContext` (避免重复启动 Chromium)。`pipeline.py` / `collect.py` 结束时自动关闭浏览器单例; 长驻进程里也可手动执行 `python scripts/playwright_driver.py --shutdown`。
 - 连续 5 次空数据 / 风控 `-102` 时暂停 60s 重试 1 次, 仍失败则退出。
 
 ## 参考资源
@@ -105,8 +105,8 @@ python scripts/collect.py --hotlist --out data/raw/hotlist.jsonl
 python scripts/playwright_driver.py --probe
 python scripts/playwright_driver.py --request '{"method":"GET","url":"/api/sns/web/v1/search/trending/list","headers":{}}'
 
-# 9) 关闭浏览器进程 (结束后)
-python scripts/playwright_driver.py --shutdown   # TODO: 实现
+# 9) 关闭浏览器进程 (结束 / 长驻进程手动关闭)
+python scripts/playwright_driver.py --shutdown
 ```
 
 ## 已验证

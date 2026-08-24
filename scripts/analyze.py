@@ -85,9 +85,10 @@ def aggregate(records):
       - 笔记维度: by_type, engagement, heat, top_keywords, top_topics, by_day, top_notes, top_users, flagged
       - 评论维度: comment_sentiment, comment_top_keywords, top_commenters, top_comments, sub_comment_count
     """
-    notes = [r for r in records if not r.get("is_comment")]
+    notes = [r for r in records if not r.get("is_comment") and not r.get("is_hotlist") and not r.get("is_user")]
     comments = [r for r in records if r.get("is_comment")]
-    hotlist = [r for r in records if (r.get("endpoint") or "") == "search/hotlist"]
+    hotlist = [r for r in records if r.get("is_hotlist")]
+    users_search = [r for r in records if r.get("is_user")]
 
     # ---- 用户维度 (笔记 + 评论都聚合) ----
     users = {}
@@ -212,6 +213,7 @@ def aggregate(records):
         "comment_top_level": sum(1 for c in comments if c.get("endpoint") == "comment/page"),
         "comment_sub": sub_comment_count,
         "hotlist_items": len(hotlist),
+        "user_search_items": len(users_search),
         "users": len(users),
 
         "by_type": dict(type_counter),
@@ -303,6 +305,12 @@ def aggregate(records):
             }
             for u in top_commenter_rows
         ],
+
+        # ---- 热门榜 / 用户搜索专属 ----
+        "top_hotlist": [
+            {"word_id": h.get("word_id"), "query": h.get("query"), "score": h.get("score")}
+            for h in sorted(hotlist, key=lambda h: float(h.get("score") or 0), reverse=True)[:20]
+        ],
     }
     return summary
 
@@ -326,7 +334,7 @@ def render_markdown(summary, source):
         f"- 总记录数: {summary['total']} "
         f"(笔记 {summary['notes']}, 评论 {summary['comments']} "
         f"[顶层 {summary['comment_top_level']} + 子 {summary['comment_sub']}], "
-        f"热门榜 {summary['hotlist_items']})"
+        f"热门榜 {summary['hotlist_items']}, 用户搜索 {summary['user_search_items']})"
     )
     lines.append(f"- 去重用户数: {summary['users']}")
     lines.append("")
@@ -470,6 +478,16 @@ def render_markdown(summary, source):
         for f in summary["flagged"]:
             lines.append(f"| {f['reason']} | {f['title']} | {f['liked']} | {f['ad_like_score']} | {f['short']} |")
     lines.append("")
+
+    # ---- 热门榜 ----
+    if summary["top_hotlist"]:
+        lines.append("## 11. 热门榜 Top 20")
+        lines.append("")
+        lines.append("| 排名 | 词条 | 热度分 |")
+        lines.append("| --- | --- | --- |")
+        for i, h in enumerate(summary["top_hotlist"], 1):
+            lines.append(f"| {i} | {h['query']} | {h['score']} |")
+        lines.append("")
 
     lines.append("---")
     lines.append("")
