@@ -46,17 +46,19 @@ description: 小红书公开/半公开内容采集与本地化分析 skill。能
 
 ### Step 3 — 生成关键词组合, 让用户确认
 
-基于已选维度, 每个维度生成 1–3 个关键词 (中文优先, 加具体年份 / 限定词提高样本新鲜度), 列出给用户确认 (支持多选)。示例:
+基于已选维度, 每个维度生成 1–3 个关键词 (中文优先, 加具体年份 / 限定词提高样本新鲜度), 列出给用户确认 (支持多选)。**展示时每个关键词标注对应维度**, 让用户知道每个关键词在补哪个调研面:
 
 ```
 主题: 秋招 / 校招
-已选维度: hc 缩减 / 面试机会 · 面试经验 / 准备策略 · 公司 / 行业口碑
-建议关键词组:
-  [hc 缩减]       hc 缩减, 27 届秋招, 互联网 hc
-  [面试经验]       面试经验, 秋招面试, 大厂面经
-  [公司口碑]       大厂避雷, 大厂工种, 互联网 996
+已选维度: hc 缩减 · 面试经验 · 公司口碑
+建议关键词组 (每个标注对应维度):
+  [→hc 缩减]    hc 缩减, 27 届秋招, 互联网 hc
+  [→面试经验]   面试经验, 秋招面试, 大厂面经
+  [→公司口碑]   大厂避雷, 大厂工种, 互联网 996
 请勾选要跑的组 (默认全跑):
 ```
+
+**关键词必须明确标注"对应哪个维度"**, 否则用户不知道选 `护肤品烂脸` 是在补"烂脸/翻车"还是"产品对比"维度。
 
 ### Step 4 — 并行 / 串行执行多关键词 pipeline
 
@@ -71,6 +73,22 @@ description: 小红书公开/半公开内容采集与本地化分析 skill。能
 调用 `scripts/cross_analyze.py --runs <slug1>,<slug2>,... --dimensions <dim1>,<dim2>,... --workspace data/runs` 生成聚合 JSON。agent 读聚合 JSON + 各个 `enriched.jsonl`, 基于用户关心的具体问题, 标注 `note_id` 与来源 run, 生成针对性报告。
 
 聚合脚本内置维度关键词集 (`hc` / `interview` / `company` / `lifestyle` / `consumer` / `safety`), 仅做命中筛选, 不做语义聚类; 真实"按维度整理"由 agent 完成。
+
+**稀薄维度处理**: 如果某个维度命中笔记数 = 0 (例如 `safety` 维度原本只覆盖"硬件事故"关键词, 对护肤品语境"烂脸/过敏"不适用), cross_analyze.py 会以**退出码 2** + stderr `WARN: 维度 X 命中稀薄` 告警。Agent 必须:
+1. 决定是用 `--custom-dimensions` 加临时关键词集 (例如 `safety:烂脸,过敏,红痒,爆痘`), 还是
+2. 把该维度从报告里去掉, 并向用户明示"该维度在本次样本里无命中"
+3. 不要为了让维度"看起来有内容"就强行归纳
+
+**自定义维度示例**:
+```bash
+python scripts/cross_analyze.py \
+    --runs lanlian,guomin,bilei \
+    --dimensions safety,consumer \
+    --custom-dimensions "safety:烂脸,过敏,红痒,爆痘;consumer:平价替代,小众品牌" \
+    --workspace data/runs
+```
+
+**报告落盘 (可选)**: agent 把写好的针对性总结保存为 `<workspace>/<date>_<topic>_report.md` (或类似的语义化名字), 这样用户后续能直接打开查看历史调研。**不要覆盖**单 run 自己的 `report.md`。
 
 **反面示例 (绝对不能做)**:
 - ❌ 跳过 Step 1-3 直接挑关键词跑 ("用户说秋招, 我就只跑 '秋招'")
@@ -181,6 +199,7 @@ python scripts/analyze.py --in data/enriched/x.jsonl --report x.report.md --summ
 | `--hotlist` 报错 / 空数据 | 热门榜页面驱动触发风控或路径变更 | 等几分钟降频重试; 持续失败再排查页面路径 |
 | 多关键词跑时被中断 | 第 N 个关键词触发风控 | 后续关键词的 run folder 会自动加 `_1` `_2` 后缀, 不影响 |
 | `cross_analyze.py` 报 "unknown dimension" | 维度名不在内置关键词集 | 检查 `--dimensions` 参数, 或扩展 `scripts/cross_analyze.py::DIM_KEYWORDS` |
+| `cross_analyze.py` 退出码 2 + `WARN: 维度 X 命中稀薄` | 该维度在本次样本里 0 笔记命中 | 用 `--custom-dimensions` 加临时关键词集, 或从报告里去掉该维度并明示用户 |
 
 ## 8. Agent 后续处理契约 (基于 desc_plain / content 写报告)
 

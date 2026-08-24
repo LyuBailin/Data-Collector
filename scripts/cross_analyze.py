@@ -75,9 +75,13 @@ DIM_KEYWORDS: Dict[str, Set[str]] = {
         "回购", "种草", "避雷", "测评", "好物",
     },
     "safety": {
-        # 安全 / 隐患 / 翻车
+        # 硬件/户外/物理事故
         "危险", "隐患", "翻车", "出事故", "事故", "翻车现场",
         "漏电", "起火", "爆炸", "烫伤", "受伤", "中毒", "卫生问题",
+        # 护肤/化妆品/食物 类身体损伤
+        "烂脸", "过敏", "红痒", "刺痛", "爆痘", "闭口", "烂脸警告",
+        "用了烂脸", "烂脸避雷", "烂脸实录", "踩雷烂脸",
+        "致痘", "致敏", "激素脸", "敏感肌", "屏障受损", "烂脸了",
     },
 }
 
@@ -170,7 +174,10 @@ def _comments_by_dim(records: List[dict], dim_words: Set[str]) -> List[dict]:
     return out
 
 
-def aggregate(runs: List[str], dimensions: List[str], workspace: Path) -> dict:
+def aggregate(runs: List[str], dimensions: List[str], workspace: Path,
+              custom_dims: Dict[str, Set[str]] = None) -> dict:
+    custom_dims = custom_dims or {}
+    effective_keywords: Dict[str, Set[str]] = {**DIM_KEYWORDS, **custom_dims}
     out: dict = {
         "by_dimension": {},
         "totals": {
@@ -181,7 +188,7 @@ def aggregate(runs: List[str], dimensions: List[str], workspace: Path) -> dict:
         },
     }
     for dim in dimensions:
-        words = DIM_KEYWORDS.get(dim)
+        words = effective_keywords.get(dim)
         if not words:
             print(f"WARN: unknown dimension '{dim}', skip", file=sys.stderr)
             continue
@@ -253,6 +260,8 @@ def main(argv=None):
                    help="逗号分隔的 run slug, 多个关键词的 --topic 值")
     p.add_argument("--dimensions", default="hc,interview,company",
                    help="逗号分隔的调研维度, 默认 hc / interview / company")
+    p.add_argument("--custom-dimensions", default="",
+                   help="自定义维度, 格式: name:kw1,kw2;name2:kw3,kw4 (与 --dimensions 累加)")
     p.add_argument("--workspace", default="data/runs",
                    help="workspace 根目录 (默认 data/runs)")
     p.add_argument("--output", default=None,
@@ -270,26 +279,57 @@ def main(argv=None):
     workspace = Path(args.workspace).resolve()
     output = Path(args.output) if args.output else workspace / "_cross_analyze.json"
 
-    log.info("聚合 %d run × %d 维度 -> %s", len(runs), len(dimensions), output)
+    # 解析自定义维度
+    custom_dims: Dict[str, Set[str]] = {}
+    if args.custom_dimensions:
+        for chunk in args.custom_dimensions.split(";"):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            if ":" not in chunk:
+                print(f"WARN: --custom-dimensions 段 '{chunk}' 缺冒号, 跳过", file=sys.stderr)
+                continue
+            name, kws = chunk.split(":", 1)
+            name = name.strip()
+            kw_set = {k.strip() for k in kws.split(",") if k.strip()}
+            if name and kw_set:
+                custom_dims[name] = kw_set
+                if name not in dimensions:
+                    dimensions.append(name)
+
+    log.info("聚合 %d run × %d 维度 (%d 自定义) -> %s",
+            len(runs), len(dimensions), len(custom_dims), output)
     for r in runs:
         log.info("  run: %s", r)
     for d in dimensions:
-        log.info("  dimension: %s", d)
+        tag = " (custom)" if d in custom_dims else ""
+        log.info("  dimension: %s%s", d, tag)
 
-    result = aggregate(runs, dimensions, workspace)
+    result = aggregate(runs, dimensions, workspace, custom_dims=custom_dims)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     log.info("写入 %s", output)
 
     # 摘要
     print("\n=== 摘要 ===")
+    thin_dims = []
     for dim, data in result["by_dimension"].items():
-        print(f"  [{dim}] 笔记 {data['notes_count']} / 评论 {data['comments_count']}")
+        n_count = data['notes_count']
+        c_count = data['comments_count']
+        line = f"  [{dim}] 笔记 {n_count} / 评论 {c_count}"
+        if n_count == 0:
+            line += "  *** 稀薄: 该维度无笔记命中 ***"
+            thin_dims.append(dim)
+        print(line)
         for n in data["top_notes_by_liked"][:3]:
             mark = "[正文]" if n["has_body"] else "[标题]"
             print(f"    {mark} [{n['run']}/{n['note_id'][:8]}] {n['title'][:50]} (赞 {n['liked']})")
     print(f"\n  total notes: {result['totals']['notes_total']}")
     print(f"  total comments: {result['totals']['comments_total']}")
+    if thin_dims:
+        print(f"\n  WARN: 维度 {thin_dims} 命中稀薄 (0 笔记). 建议补跑关键词或加 --custom-dimensions.",
+              file=sys.stderr)
+        return 2  # 退出码 2 = 数据稀薄, 但流程成功
     return 0
 
 
