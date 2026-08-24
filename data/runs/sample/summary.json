@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-24T08:32:17.749021+00:00",
+  "generated_at": "2026-08-24T09:13:03.199507+00:00",
   "total": 8,
   "notes": 8,
   "comments": 0,
@@ -16,6 +16,220 @@
     "negative": 3,
     "neutral": 2
   },
+  "coverage": {
+    "notes": 8,
+    "with_desc": 8,
+    "with_ts": 8,
+    "detail_enriched": 0
+  },
+  "sentiment_stats": {
+    "negative": {
+      "count": 3,
+      "mean_engagement": 1.346,
+      "mean_heat": 5.2642
+    },
+    "neutral": {
+      "count": 2,
+      "mean_engagement": 0.0264,
+      "mean_heat": 4.5786
+    },
+    "positive": {
+      "count": 3,
+      "mean_engagement": 0.3918,
+      "mean_heat": 5.8618
+    }
+  },
+  "top_topics_ranked": [
+    {
+      "topic": "露营",
+      "freq": 3,
+      "mean_engagement": 1.4867,
+      "mean_heat": 6.4964
+    },
+    {
+      "topic": "装备",
+      "freq": 2,
+      "mean_engagement": 2.0404,
+      "mean_heat": 6.9753
+    },
+    {
+      "topic": "户外",
+      "freq": 2,
+      "mean_engagement": 0.2409,
+      "mean_heat": 6.7608
+    },
+    {
+      "topic": "旅行",
+      "freq": 2,
+      "mean_engagement": 0.2409,
+      "mean_heat": 6.7608
+    },
+    {
+      "topic": "种草",
+      "freq": 2,
+      "mean_engagement": 0.2163,
+      "mean_heat": 5.4939
+    },
+    {
+      "topic": "避雷",
+      "freq": 2,
+      "mean_engagement": 0.194,
+      "mean_heat": 4.7591
+    },
+    {
+      "topic": "攻略",
+      "freq": 2,
+      "mean_engagement": 1.8505,
+      "mean_heat": 6.06
+    },
+    {
+      "topic": "轻量化",
+      "freq": 1,
+      "mean_engagement": 0.4308,
+      "mean_heat": 7.6762
+    },
+    {
+      "topic": "推荐",
+      "freq": 1,
+      "mean_engagement": 0.4308,
+      "mean_heat": 7.6762
+    },
+    {
+      "topic": "福利",
+      "freq": 1,
+      "mean_engagement": 0.0019,
+      "mean_heat": 3.3117
+    },
+    {
+      "topic": "优惠",
+      "freq": 1,
+      "mean_engagement": 0.0019,
+      "mean_heat": 3.3117
+    },
+    {
+      "topic": "好物",
+      "freq": 1,
+      "mean_engagement": 0.0019,
+      "mean_heat": 3.3117
+    },
+    {
+      "topic": "抽奖",
+      "freq": 1,
+      "mean_engagement": 0.0019,
+      "mean_heat": 3.3117
+    },
+    {
+      "topic": "红包http",
+      "freq": 1,
+      "mean_engagement": 0.0019,
+      "mean_heat": 3.3117
+    },
+    {
+      "topic": "徒步",
+      "freq": 1,
+      "mean_engagement": 0.051,
+      "mean_heat": 5.8455
+    },
+    {
+      "topic": "新手",
+      "freq": 1,
+      "mean_engagement": 3.65,
+      "mean_heat": 6.2744
+    },
+    {
+      "topic": "咖啡",
+      "freq": 1,
+      "mean_engagement": 0.1854,
+      "mean_heat": 5.1359
+    },
+    {
+      "topic": "宝藏",
+      "freq": 1,
+      "mean_engagement": 0.1854,
+      "mean_heat": 5.1359
+    },
+    {
+      "topic": "氛围",
+      "freq": 1,
+      "mean_engagement": 0.1854,
+      "mean_heat": 5.1359
+    },
+    {
+      "topic": "上海",
+      "freq": 1,
+      "mean_engagement": 0.5592,
+      "mean_heat": 4.7733
+    }
+  ],
+  "er_hist": [
+    {
+      "range": "0-0.1",
+      "count": 3,
+      "pct": 37.5
+    },
+    {
+      "range": "0.1-0.5",
+      "count": 3,
+      "pct": 37.5
+    },
+    {
+      "range": "0.5-1",
+      "count": 1,
+      "pct": 12.5
+    },
+    {
+      "range": "1-2",
+      "count": 0,
+      "pct": 0.0
+    },
+    {
+      "range": "2-5",
+      "count": 1,
+      "pct": 12.5
+    },
+    {
+      "range": "5-10",
+      "count": 0,
+      "pct": 0.0
+    },
+    {
+      "range": "10+",
+      "count": 0,
+      "pct": 0.0
+    }
+  ],
+  "heat_hist": [
+    {
+      "range": "0-2",
+      "count": 0,
+      "pct": 0.0
+    },
+    {
+      "range": "2-4",
+      "count": 2,
+      "pct": 25.0
+    },
+    {
+      "range": "4-5",
+      "count": 1,
+      "pct": 12.5
+    },
+    {
+      "range": "5-6",
+      "count": 3,
+      "pct": 37.5
+    },
+    {
+      "range": "6-7",
+      "count": 1,
+      "pct": 12.5
+    },
+    {
+      "range": "7+",
+      "count": 1,
+      "pct": 12.5
+    }
+  ],
   "engagement": {
     "mean": 0.658271,
     "p50": 0.282284,
@@ -220,7 +434,8 @@
         "种草"
       ],
       "sentiment": "positive",
-      "share_url": "https://www.xiaohongshu.com/explore/n0"
+      "share_url": "https://www.xiaohongshu.com/explore/n0",
+      "detail_enriched": false
     },
     {
       "note_id": "n4",
@@ -236,7 +451,8 @@
         "攻略"
       ],
       "sentiment": "negative",
-      "share_url": "https://www.xiaohongshu.com/explore/n4"
+      "share_url": "https://www.xiaohongshu.com/explore/n4",
+      "detail_enriched": false
     },
     {
       "note_id": "n3",
@@ -252,7 +468,8 @@
         "攻略"
       ],
       "sentiment": "neutral",
-      "share_url": "https://www.xiaohongshu.com/explore/n3"
+      "share_url": "https://www.xiaohongshu.com/explore/n3",
+      "detail_enriched": false
     },
     {
       "note_id": "n1",
@@ -266,7 +483,8 @@
         "露营"
       ],
       "sentiment": "negative",
-      "share_url": "https://www.xiaohongshu.com/explore/n1"
+      "share_url": "https://www.xiaohongshu.com/explore/n1",
+      "detail_enriched": false
     },
     {
       "note_id": "n5",
@@ -281,7 +499,8 @@
         "氛围"
       ],
       "sentiment": "positive",
-      "share_url": "https://www.xiaohongshu.com/explore/n5"
+      "share_url": "https://www.xiaohongshu.com/explore/n5",
+      "detail_enriched": false
     },
     {
       "note_id": "n6",
@@ -295,7 +514,8 @@
         "citywalk"
       ],
       "sentiment": "positive",
-      "share_url": "https://www.xiaohongshu.com/explore/n6"
+      "share_url": "https://www.xiaohongshu.com/explore/n6",
+      "detail_enriched": false
     },
     {
       "note_id": "n7",
@@ -309,7 +529,8 @@
         "护肤"
       ],
       "sentiment": "negative",
-      "share_url": "https://www.xiaohongshu.com/explore/n7"
+      "share_url": "https://www.xiaohongshu.com/explore/n7",
+      "detail_enriched": false
     },
     {
       "note_id": "n2",
@@ -327,7 +548,8 @@
         "红包http"
       ],
       "sentiment": "neutral",
-      "share_url": "https://www.xiaohongshu.com/explore/n2"
+      "share_url": "https://www.xiaohongshu.com/explore/n2",
+      "detail_enriched": false
     }
   ],
   "top_users": [

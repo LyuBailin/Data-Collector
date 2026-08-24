@@ -42,6 +42,7 @@ from collect import (  # noqa: E402
     collect_search_notes,
     collect_user_notes,
     collect_note_detail,
+    collect_note_full,
     collect_comments,
     collect_hotlist,
     collect_search_users,
@@ -150,13 +151,72 @@ def _full_pipeline(run_dir: Path, rows: list, label: str = "") -> int:
     md = analyze_mod.render_markdown(summary, str(enriched_path))
     _write_text(report_path, md)
     LOG.info("report: %s", report_path)
+
+    try:
+        n_csv = analyze_mod.export_notes_csv(enriched_records, run_dir / "notes.csv")
+        LOG.info("notes.csv: %d -> %s", n_csv, run_dir / "notes.csv")
+        if any(r.get("is_comment") for r in enriched_records):
+            n_c2 = analyze_mod.export_comments_csv(enriched_records, run_dir / "comments.csv")
+            LOG.info("comments.csv: %d -> %s", n_c2, run_dir / "comments.csv")
+    except Exception as exc:
+        LOG.warning("CSV 导出失败: %s", exc)
     return 0
+
+
+def _enrich_top_notes(client, rows, n, with_comments):
+    """给热度 Top N 的搜索卡片补全正文/标签/时间, 可选评论; 返回扩展后的 rows。
+
+    热度 = liked*1 + collected*3 + comment*2 (与 enrich.heat_score 权重一致)。
+    补全用 collect_note_full (页面驱动, 一次导航拿笔记+评论)。
+    """
+    notes = [r for r in rows if (r.get("item") or {}).get("note_id")]
+    if not notes:
+        LOG.warning("无笔记可补全")
+        return rows
+
+    def _score(r):
+        it = (r.get("item") or {}).get("interact") or {}
+        return int(it.get("liked") or 0) * 1 + int(it.get("collected") or 0) * 3 + int(it.get("comment") or 0) * 2
+
+    ranked = sorted(notes, key=_score, reverse=True)[:n]
+    target_ids = [r["item"]["note_id"] for r in ranked]
+    LOG.info("补全 Top %d 笔记详情: %s", len(target_ids), target_ids)
+
+    enriched = []
+    for r in rows:
+        nid = (r.get("item") or {}).get("note_id")
+        if nid not in target_ids:
+            enriched.append(r)
+            continue
+        xsec = (r.get("item") or {}).get("xsec_token") or ""
+        try:
+            details = collect_note_full(client, nid, xsec_token=xsec,
+                                        with_comments=with_comments, max_comment_pages=1)
+        except Exception as exc:
+            LOG.warning("补全 %s 失败: %s", nid, exc)
+            enriched.append(r)
+            continue
+        if not details:
+            LOG.warning("补全 %s: 无详情, 保留搜索卡片", nid)
+            enriched.append(r)
+            continue
+        merged = dict(r)
+        merged["item"] = details[0]["item"]
+        merged["detail_enriched"] = True
+        enriched.append(merged)
+        if with_comments:
+            enriched.extend(details[1:])
+        LOG.info("补全 %s OK (新增记录 %d)", nid, len(details))
+    LOG.info("补全结束: %d -> %d 条 (含评论)", len(rows), len(enriched))
+    return enriched
 
 
 def run_keyword(args, client, workspace):
     topic = args.topic or args.keyword
     run_dir = _make_run_dir(workspace, topic)
     rows = collect_search_notes(client, args.keyword, args.pages, args.page_size, args.sort)
+    if args.enrich_notes and rows:
+        rows = _enrich_top_notes(client, rows, args.enrich_notes, args.with_comments)
     return _full_pipeline(run_dir, rows, label=f"keyword={args.keyword}")
 
 
@@ -205,9 +265,11 @@ def build_parser():
                    help="run folder 根目录 (默认 data/runs, 每次跑会创建 <workspace>/<date>_<topic>/)")
     p.add_argument("--topic", help="run folder 名字后缀, 默认用 keyword / user / note / category 推断")
     p.add_argument("--sign-engine", choices=["legacy", "node", "browser"], default="browser")
-    p.add_argument("--with-comments", action="store_true")
+    p.add_argument("--with-comments", action="store_true", help="(配合 --note / --enrich-notes) 同时抓评论")
     p.add_argument("--max-comment-pages", type=int, default=3)
     p.add_argument("--xsec-token", default="", help="(配合 --note) 笔记访问令牌, 从笔记 URL ?xsec_token= 复制")
+    p.add_argument("--enrich-notes", type=int, default=0, metavar="N",
+                   help="(配合 --keyword) 对热度 Top N 的笔记补全正文/标签/时间 (可选 --with-comments)")
     p.add_argument("--log-level", default="INFO")
     mode = p.add_mutually_exclusive_group(required=True)
     mode.add_argument("--keyword", help="关键词搜索笔记")

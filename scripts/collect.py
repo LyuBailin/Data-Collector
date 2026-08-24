@@ -99,7 +99,7 @@ def state_note_to_api(n):
     return {
         "note_id": n.get("noteId") or n.get("id"),
         "title": n.get("title"),
-        "desc": n.get("desc"),
+        "desc": (n.get("desc") or "").replace("[话题]", " "),
         "type": n.get("type"),
         "user": n.get("user") or {},
         "interact_info": {
@@ -224,6 +224,9 @@ def _collect_search_notes_page_driven(client, keyword, pages):
         note = raw.get("note_card") or raw
         if not (note.get("note_id") or note.get("id") or note.get("noteId")):
             note = {**note, "id": raw.get("id")}
+        # v2 搜索 item 的 xsec_token 在 item 层 (不在 note_card 里), 补进去供详情页复用
+        if not note.get("xsec_token") and not note.get("xsecToken") and raw.get("xsec_token"):
+            note = {**note, "xsec_token": raw.get("xsec_token")}
         rows.append({
             "endpoint": "search/notes",
             "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -390,6 +393,62 @@ def _collect_comments_page_driven(client, note_id, max_pages, schema, fetch_sub,
                 })
     LOG.info("page comment note_id=%s 共 %d 条评论", note_id, len(rows))
     return rows
+
+def collect_note_full(client, note_id, xsec_token="", with_comments=False, max_comment_pages=1):
+    """一次拿到笔记详情 + (可选) 评论。
+
+    浏览器引擎: 单次页面导航同时提取 INITIAL_STATE 正文与拦截评论响应
+    (避免详情/评论各导航一次, 降低请求频率)。
+    """
+    if client.sign_engine != "browser":
+        rows = collect_note_detail(client, note_id, xsec_token=xsec_token)
+        if with_comments:
+            rows += collect_comments(client, note_id, max_comment_pages, schema="v2", xsec_token=xsec_token)
+        return rows
+
+    from playwright_driver import ensure_loop, page_note_detail
+
+    result = ensure_loop().run_until_complete(
+        page_note_detail(note_id, xsec_token=xsec_token, max_comment_pages=max_comment_pages)
+    )
+    rows = [{
+        "endpoint": "feed/note_detail",
+        "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "item": normalize_note(state_note_to_api(result["note"])),
+        "raw": result["note"],
+    }]
+    if with_comments:
+        rows += _comment_rows_from_comments(result["comments"], note_id)
+    return rows
+
+
+def _comment_rows_from_comments(comments, note_id):
+    """把页面捕获的原始评论列表展开成 record 列表 (含子评论)。"""
+    rows = []
+    for c in comments:
+        norm = normalize_comment(c, schema="v2")
+        rows.append({
+            "endpoint": "comment/page",
+            "schema": "v2",
+            "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "note_id": note_id,
+            "item": norm,
+            "raw": c,
+        })
+        for sub in norm.get("sub_comments") or []:
+            sub_item = dict(sub)
+            sub_item["parent_comment_id"] = norm.get("comment_id")
+            rows.append({
+                "endpoint": "comment/page/sub",
+                "schema": "v2",
+                "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                "note_id": note_id,
+                "parent_comment_id": norm.get("comment_id"),
+                "item": sub_item,
+                "raw": c,
+            })
+    return rows
+
 
 def collect_hotlist(client, category="general", page_size=50):
     body = {"category": category, "page_size": page_size}

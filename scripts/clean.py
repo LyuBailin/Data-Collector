@@ -73,6 +73,8 @@ def desc_plain(desc, tags):
     t = _HTML_TAG.sub(" ", t)
     t = strip_emoji(t)
     t = unicodedata.normalize("NFKC", t)
+    # 详情页 INITIAL_STATE 里的话题占位符 (如 "[话题]") 与哈希标签一并清除
+    t = t.replace("[话题]", " ")
     for tag in tags:
         t = t.replace("#" + tag, " ")
         t = t.replace("#" + tag + " ", " ")
@@ -220,6 +222,7 @@ def clean_record(rec):
         "page": rec.get("page"),
         "note_id": item.get("note_id") or rec.get("note_id"),
         "is_comment": False,
+        "detail_enriched": bool(rec.get("detail_enriched")),
         "title": cleaned_title,
         "desc_plain": cleaned_desc,
         "tags": tags_norm,

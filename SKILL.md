@@ -84,6 +84,9 @@ python scripts/xhs_client.py init-cookie
 # 2) 一键 pipeline (关键词搜索 + 整链路分析, 默认 browser 引擎)
 python scripts/pipeline.py --keyword "露营装备" --pages 3 --workspace data/
 
+# 2b) 关键词 + 热度 Top N 笔记补全正文/评论 (推荐: 报告更有料)
+python scripts/pipeline.py --keyword "hc 缩减" --pages 3 --enrich-notes 10 --with-comments --workspace data/
+
 # 3) 分阶段
 python scripts/collect.py --keyword "露营装备" --pages 3 --out data/raw/search.jsonl
 python scripts/clean.py   --in  data/raw/search.jsonl  --out data/clean/search.jsonl
