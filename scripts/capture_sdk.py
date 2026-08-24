@@ -40,6 +40,11 @@ MNSV2_SRC_OUTPUT = "assets/bundles/sdk-mnsv2.txt"
 PRIMARY_DOMAIN = ".xiaohongshu.com"
 
 
+def _normalize_same_site(v):
+    """Playwright 只接受 Strict/Lax/None; EditThisCookie 导出的 'unspecified'/null 按 Lax 处理。"""
+    return v if v in ("Strict", "Lax", "None") else "Lax"
+
+
 def load_cookies(path: str | Path) -> List[Dict[str, Any]]:
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     items = raw if isinstance(raw, list) else [{"name": k, "value": v, "domain": ".xiaohongshu.com", "path": "/"} for k, v in raw.items()]
@@ -59,7 +64,7 @@ def load_cookies(path: str | Path) -> List[Dict[str, Any]]:
             "path": c.get("path", "/"),
             "httpOnly": bool(c.get("httpOnly", False)),
             "secure": bool(c.get("secure", False)),
-            "sameSite": c.get("sameSite") or "Lax",
+            "sameSite": _normalize_same_site(c.get("sameSite")),
         })
     return out
 
