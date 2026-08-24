@@ -155,7 +155,13 @@ async def probe() -> Dict[str, Any]:
 
 
 async def do_request(method: str, url: str, headers: Dict[str, str], body: Any) -> Dict[str, Any]:
-    """在浏览器里发请求, 由浏览器拦截器自动加 X-s / X-t / X-common-params。"""
+    """在浏览器里发请求, 由浏览器拦截器自动加 X-s / X-t / X-common-params。
+
+    注意: raw fetch 只能拿到 fetch hook 自动附加的签名头; 部分网关
+    (so.xiaohongshu.com 搜索服务) 会要求页面 axios 完整链路产生的额外头
+    (x-s-common 等), raw fetch 可能被 406 拒绝。对这类接口请用
+    page_search_notes / page_note_detail 页面驱动方式采集。
+    """
     if url.startswith("/"):
         url = API_BASE_URL + url
     page = await ensure_browser()
@@ -187,6 +193,122 @@ async def do_request(method: str, url: str, headers: Dict[str, str], body: Any) 
     # 用浏览器内的 fetch 发请求, XHS 的全局拦截器 (含 fetch hook) 会自动加签名
     apiResp = await page.evaluate(script, {"method": method, "url": url, "headers": headers, "body": body_str})
     return apiResp
+
+
+# ------------------------- 页面驱动采集 -------------------------
+# raw fetch 拿不到页面 axios 完整链路附加的签名头 (x-s-common 等),
+# 搜索网关 (so.xiaohongshu.com) 会直接 406。这里改为"让页面自己发请求,
+# 我们拦截页面自身的 API 响应", 与真实用户在浏览器里的行为完全一致。
+
+
+async def page_search_notes(keyword: str, pages: int = 1, page_size: int = 20) -> List[Dict[str, Any]]:
+    """页面驱动搜索: 打开搜索页, 捕获页面自身发出的 v2 search 响应。
+
+    返回按出现顺序去重后的 items 列表 (每项含 note_card / id / model_type)。
+    页面自行生成 search_id / session_id / 签名, 分页通过滚动触发。
+    """
+    from urllib.parse import quote
+
+    page = await ensure_browser()
+    captured: List[Dict[str, Any]] = []
+    seen_ids: set = set()
+
+    async def on_response(resp):
+        url = resp.url
+        if "so.xiaohongshu.com/api/sns/web/v2/search/notes" not in url:
+            return
+        try:
+            payload = json.loads(await resp.text())
+        except Exception:
+            return
+        data = payload.get("data") or {}
+        for it in data.get("items") or []:
+            if it.get("model_type") != "note":
+                continue
+            note = it.get("note_card") or it
+            nid = note.get("note_id") or note.get("id") or it.get("id")
+            if nid and nid in seen_ids:
+                continue
+            if nid:
+                seen_ids.add(nid)
+            captured.append(it)
+
+    page.on("response", lambda r: asyncio.create_task(on_response(r)))
+
+    search_url = f"{DEFAULT_BASE_URL}/search_result?keyword={quote(keyword)}&source=web_search_result"
+    LOG.info("page_search_notes: goto %s (pages=%d)", search_url, pages)
+    try:
+        await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+    except Exception as exc:
+        LOG.warning("page_search_notes goto: %s", exc)
+
+    # 等第一页结果 (最长 ~20s)
+    for _ in range(40):
+        if captured:
+            break
+        await page.wait_for_timeout(500)
+    if not captured:
+        raise RuntimeError(f"搜索页未返回任何结果 (keyword={keyword}) —— 可能触发风控, 请稍后重试")
+
+    # 滚动触发后续页加载
+    for _ in range(max(0, pages - 1)):
+        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        await page.wait_for_timeout(3500)
+    LOG.info("page_search_notes: captured %d note items", len(captured))
+    return captured
+
+
+async def page_note_detail(note_id: str, xsec_token: str = "", max_comment_pages: int = 1) -> Dict[str, Any]:
+    """页面驱动: 打开笔记详情页, 从 INITIAL_STATE 提取笔记, 捕获评论 API 响应。
+
+    返回 {"note": <INITIAL_STATE 原始 note dict>, "comments": [原始评论 dict 列表]}。
+    笔记正文由页面 SSR 注入 window.__INITIAL_STATE__.note.noteDetailMap[id].note;
+    评论由页面自身发出的 edith v2/comment/page 响应捕获。
+    """
+    page = await ensure_browser()
+    comments: List[Dict[str, Any]] = []
+
+    async def on_response(resp):
+        url = resp.url
+        if "api/sns/web/v2/comment/page" not in url or note_id not in url:
+            return
+        try:
+            payload = json.loads(await resp.text())
+        except Exception:
+            return
+        data = payload.get("data") or {}
+        for c in data.get("comments") or []:
+            comments.append(c)
+
+    page.on("response", lambda r: asyncio.create_task(on_response(r)))
+
+    url = f"{DEFAULT_BASE_URL}/explore/{note_id}"
+    if xsec_token:
+        url += f"?xsec_token={xsec_token}&xsec_source=pc_search&source=web_live_list"
+    LOG.info("page_note_detail: goto %s", url)
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+    except Exception as exc:
+        LOG.warning("page_note_detail goto: %s", exc)
+    await page.wait_for_timeout(6000)
+
+    note = await page.evaluate(
+        """(noteId) => {
+            const s = window.__INITIAL_STATE__ || {};
+            const m = (s.note || {}).noteDetailMap || {};
+            return m[noteId] ? (m[noteId].note || null) : null;
+        }""",
+        note_id,
+    )
+    if not note:
+        raise RuntimeError(f"笔记详情页未找到 noteId={note_id} (可能 xsec_token 缺失、笔记不可见或页面未加载)")
+
+    # 滚动触发更多评论加载 (尽力而为)
+    for _ in range(max(0, max_comment_pages - 1)):
+        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        await page.wait_for_timeout(3500)
+    LOG.info("page_note_detail: note=%s comments=%d", note_id, len(comments))
+    return {"note": note, "comments": comments}
 
 
 async def shutdown():

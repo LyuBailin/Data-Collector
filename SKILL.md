@@ -19,10 +19,12 @@ collect  ->  clean  ->  enrich  ->  analyze
 | clean | ✅ 已验证 | 8 条 mock 数据端到端通过 |
 | enrich | ✅ 已验证 | jieba + 情感词典 + 热度 + 广告启发式 |
 | analyze | ✅ 已验证 | summary.json + report.md |
-| 采集 HTTP 客户端 | ✅ 已验证 | Playwright 浏览器引擎, X-s / X-t / X-common-params 由浏览器拦截器自动添加 |
-| 签名 (X-s/X-t) | ✅ 已验证 | 浏览器内 `seccore_signv2` 跑通, 服务器返回 200 + 真实 JSON |
+| 采集 HTTP 客户端 | ✅ 已验证 | Playwright 浏览器引擎; 关键词搜索走**页面驱动** (打开搜索页拦截 v2 search 响应), 笔记详情/评论走笔记页 `__INITIAL_STATE__` + 页面评论响应 |
+| 签名 (X-s/X-t) | ✅ 已验证 | 浏览器内 `seccore_signv2` 跑通, 服务器返回 200 + 真实 JSON; raw fetch 对 so 搜索网关会 406, 已改页面驱动 |
 
-> 当前 cookie 在生产环境中被 XHS 标记为 "account status abnormal" (`code:300011`), 这是账号层面的限制, 不是 skill 的问题。换一组新鲜 cookie 即可正常工作。
+> **勘误 (2026-08)**: 之前记录的 `code:300011` 账号异常**并非账号风控** —— 那是旧版
+> `edith.../v1/search/notes` 接口废弃后的拒答。用户账号本身正常 (页面自身请求全部 `code:0`)。
+> 修复方式是把搜索切到 `so.xiaohongshu.com/api/sns/web/v2/search/notes` + 页面驱动采集。
 
 ## 使用前提
 
@@ -49,6 +51,7 @@ collect  ->  clean  ->  enrich  ->  analyze
 
 ### X-s / X-t 签名
 - 默认签名引擎 `--sign-engine browser` 通过 Playwright 启动 Chromium, 注入 cookie, 加载 `xiaohongshu.com` 触发所有静态 bundle + 动态 SDK (`window.mnsv2`), 然后 `page.evaluate(fetch(url, ...))` 发请求。浏览器自己的 axios 拦截器自动加 `X-s` / `X-t` / `X-common-params` / `X-mns` / `X-web-s` / `X-web-t`。
+- **注意 (2026-08 实测)**: 关键词搜索接口已迁移到 `so.xiaohongshu.com/api/sns/web/v2/search/notes`。该网关会校验页面 axios 完整链路附加的 `x-s-common` 等额外签名头, **raw fetch 会被 406 拒绝**; 旧 v1 接口在 edith 上返回 `code:300011` (废弃拒答, 不是账号风控)。因此浏览器引擎对搜索 / 笔记详情 / 评论统一改为**页面驱动**: 打开搜索页 / 笔记页, 拦截页面自身发出的 API 响应 (`scripts/playwright_driver.py::page_search_notes / page_note_detail`)。响应字段差异见 `references/api.md`。
 - `--sign-engine node` 和 `--sign-engine legacy` 是为离线调试 / 教学保留, 当前 XHS web 上不会被服务端接受 (签名算法已经被 seccore_signv2 替换)。
 - 签名引擎的所有细节见 `references/signing.md`。
 
@@ -95,8 +98,9 @@ python scripts/collect.py --sign-engine legacy --keyword "test" --pages 1 --out 
 # 5) 用户主页
 python scripts/collect.py --user <user_id> --pages 3 --out data/raw/user.jsonl
 
-# 6) 单篇笔记 + 评论
-python scripts/collect.py --note <note_id> --with-comments --out data/raw/note.jsonl
+# 6) 单篇笔记 + 评论 (浏览器引擎: 需要 xsec_token, 从笔记 URL 复制)
+python scripts/collect.py --note <note_id> --with-comments --xsec-token <xsec_token> --out data/raw/note.jsonl
+python scripts/pipeline.py --note <note_id> --with-comments --xsec-token <xsec_token> --workspace data/runs
 
 # 7) 热门榜
 python scripts/collect.py --hotlist --out data/raw/hotlist.jsonl

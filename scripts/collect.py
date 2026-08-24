@@ -55,15 +55,16 @@ def normalize_note(note):
     cover = ""
     cov = note.get("cover")
     if isinstance(cov, dict):
-        cover = cov.get("url") or ""
+        cover = cov.get("url") or cov.get("url_default") or cov.get("url_pre") or ""
     elif isinstance(cov, str):
         cover = cov
     video = note.get("video") or {}
     stream = ((video.get("media") or {}).get("stream") or {}).get("h264") or []
     video_url = stream[0].get("master_url") if stream else ""
+    share = note.get("share_info") or note.get("shareInfo") or {}
     return {
-        "note_id": note.get("note_id") or note.get("id") or "",
-        "title": (note.get("title") or "")[:200],
+        "note_id": note.get("note_id") or note.get("id") or note.get("noteId") or "",
+        "title": (note.get("title") or note.get("display_title") or "")[:200],
         "desc": (note.get("desc") or "")[:5000],
         "type": note.get("type") or note.get("note_type") or "normal",
         "user": {
@@ -76,16 +77,44 @@ def normalize_note(note):
             "liked": int(interact.get("liked_count") or interact.get("liked") or 0),
             "collected": int(interact.get("collected_count") or interact.get("collected") or 0),
             "comment": int(interact.get("comment_count") or interact.get("comment") or 0),
-            "share": int(interact.get("share_count") or interact.get("share") or 0),
+            "share": int(interact.get("share_count") or interact.get("shared_count") or interact.get("share") or 0),
         },
         "cover_url": cover,
         "video_url": video_url,
-        "tags": _extract_tags(note.get("desc", "") or ""),
-        "ts": note.get("time") or note.get("last_update_time") or 0,
-        "ts_iso": _ts_iso(note.get("time") or note.get("last_update_time")),
-        "ip_location": note.get("ip_location") or "",
-        "xsec_token": note.get("xsec_token") or "",
-        "share_url": (note.get("share_info") or {}).get("link") if isinstance(note.get("share_info"), dict) else "",
+        "tags": note.get("tags") if isinstance(note.get("tags"), list)
+        else _extract_tags(note.get("desc", "") or ""),
+        "ts": note.get("time") or note.get("last_update_time") or note.get("lastUpdateTime") or 0,
+        "ts_iso": _ts_iso(note.get("time") or note.get("last_update_time") or note.get("lastUpdateTime")),
+        "ip_location": note.get("ip_location") or note.get("ipLocation") or "",
+        "xsec_token": note.get("xsec_token") or note.get("xsecToken") or "",
+        "share_url": (share.get("link") if isinstance(share, dict) else "") or "",
+    }
+
+
+def state_note_to_api(n):
+    """把笔记详情页 INITIAL_STATE 里的 camelCase note 转成 normalize_note 认识的形状。"""
+    if not n:
+        return {}
+    inter = n.get("interactInfo") or {}
+    return {
+        "note_id": n.get("noteId") or n.get("id"),
+        "title": n.get("title"),
+        "desc": n.get("desc"),
+        "type": n.get("type"),
+        "user": n.get("user") or {},
+        "interact_info": {
+            "liked_count": inter.get("likedCount"),
+            "collected_count": inter.get("collectedCount"),
+            "comment_count": inter.get("commentCount"),
+            "share_count": inter.get("shareCount"),
+        },
+        "tags": [t.get("name") for t in (n.get("tagList") or []) if isinstance(t, dict) and t.get("name")],
+        "time": n.get("time") or n.get("lastUpdateTime"),
+        "ip_location": n.get("ipLocation"),
+        "xsec_token": n.get("xsecToken"),
+        "share_info": n.get("shareInfo") or {},
+        "cover": {"url": ((n.get("imageList") or [{}])[0] or {}).get("urlDefault") or ""}
+        if isinstance(n.get("imageList"), list) and n.get("imageList") else "",
     }
 
 
@@ -152,6 +181,10 @@ def _read_jsonl(path):
 
 
 def collect_search_notes(client, keyword, pages, page_size=20, sort="general"):
+    if client.sign_engine == "browser":
+        # 页面驱动: 搜索接口已迁移到 so.xiaohongshu.com v2, raw fetch 会被 406 拒
+        return _collect_search_notes_page_driven(client, keyword, pages)
+
     rows = []
     for page in range(1, pages + 1):
         body = {
@@ -181,6 +214,27 @@ def collect_search_notes(client, keyword, pages, page_size=20, sort="general"):
     return rows
 
 
+def _collect_search_notes_page_driven(client, keyword, pages):
+    """浏览器引擎专用: 让搜索页自己发 v2 search 请求, 拦截页面响应。"""
+    from playwright_driver import ensure_loop, page_search_notes
+
+    items = ensure_loop().run_until_complete(page_search_notes(keyword, pages=pages))
+    rows = []
+    for raw in items:
+        note = raw.get("note_card") or raw
+        if not (note.get("note_id") or note.get("id") or note.get("noteId")):
+            note = {**note, "id": raw.get("id")}
+        rows.append({
+            "endpoint": "search/notes",
+            "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "page": None,  # 页面驱动: 由页面自动翻页, 不标记页码
+            "item": normalize_note(note),
+            "raw": raw,
+        })
+    LOG.info("page_search keyword=%s 共 %d 条", keyword, len(rows))
+    return rows
+
+
 def collect_user_notes(client, user_id, pages, cursor=""):
     rows = []
     for _ in range(pages):
@@ -203,7 +257,10 @@ def collect_user_notes(client, user_id, pages, cursor=""):
     return rows
 
 
-def collect_note_detail(client, note_id):
+def collect_note_detail(client, note_id, xsec_token=""):
+    if client.sign_engine == "browser":
+        return _collect_note_detail_page_driven(client, note_id, xsec_token)
+
     params = {"source_note_id": note_id}
     resp = client.get("/api/sns/web/v1/feed", params=params)
     rows = []
@@ -223,7 +280,21 @@ def collect_note_detail(client, note_id):
     return rows
 
 
-def collect_comments(client, note_id, max_pages=3, schema="v2", fetch_sub=True):
+def _collect_note_detail_page_driven(client, note_id, xsec_token):
+    """浏览器引擎专用: 打开笔记页, 从 INITIAL_STATE 提取笔记正文。"""
+    from playwright_driver import ensure_loop, page_note_detail
+
+    result = ensure_loop().run_until_complete(page_note_detail(note_id, xsec_token=xsec_token, max_comment_pages=1))
+    note = state_note_to_api(result["note"])
+    return [{
+        "endpoint": "feed/note_detail",
+        "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "item": normalize_note(note),
+        "raw": result["note"],
+    }]
+
+
+def collect_comments(client, note_id, max_pages=3, schema="v2", fetch_sub=True, xsec_token=""):
     """抓取某条笔记的全部评论 (含子评论)。
 
     schema:
@@ -233,7 +304,12 @@ def collect_comments(client, note_id, max_pages=3, schema="v2", fetch_sub=True):
     fetch_sub:
       - True (默认): 把嵌套的 sub_comments 也展开成独立记录 (endpoint = comment/page/sub)
       - False: 只保留顶层评论
+
+    xsec_token: 浏览器引擎 (页面驱动) 下需要笔记的 xsec_token 才能加载评论。
     """
+    if client.sign_engine == "browser":
+        return _collect_comments_page_driven(client, note_id, max_pages, schema, fetch_sub, xsec_token)
+
     rows = []
     cursor = ""
     if schema == "v2":
@@ -278,6 +354,41 @@ def collect_comments(client, note_id, max_pages=3, schema="v2", fetch_sub=True):
         LOG.info("%s note_id=%s 取得 %d, cursor=%s", endpoint, note_id, len(comments), cursor[:10])
         if not has_more or not cursor:
             break
+    return rows
+
+
+def _collect_comments_page_driven(client, note_id, max_pages, schema, fetch_sub, xsec_token):
+    """浏览器引擎专用: 打开笔记页, 捕获页面自身发出的 v2/comment/page 响应。"""
+    from playwright_driver import ensure_loop, page_note_detail
+
+    result = ensure_loop().run_until_complete(
+        page_note_detail(note_id, xsec_token=xsec_token, max_comment_pages=max_pages)
+    )
+    rows = []
+    for c in result["comments"]:
+        norm = normalize_comment(c, schema="v2")
+        rows.append({
+            "endpoint": "comment/page",
+            "schema": "v2",
+            "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "note_id": note_id,
+            "item": norm,
+            "raw": c,
+        })
+        if fetch_sub and norm.get("sub_comments"):
+            for sub in norm["sub_comments"]:
+                sub_item = dict(sub)
+                sub_item["parent_comment_id"] = norm.get("comment_id")
+                rows.append({
+                    "endpoint": "comment/page/sub",
+                    "schema": "v2",
+                    "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                    "note_id": note_id,
+                    "parent_comment_id": norm.get("comment_id"),
+                    "item": sub_item,
+                    "raw": c,
+                })
+    LOG.info("page comment note_id=%s 共 %d 条评论", note_id, len(rows))
     return rows
 
 def collect_hotlist(client, category="general", page_size=50):
@@ -364,6 +475,7 @@ def main(argv=None):
     p.add_argument("--category", default="general", help="hotlist 分类")
     p.add_argument("--with-comments", action="store_true", help="(配合 --note) 同时抓评论")
     p.add_argument("--max-comment-pages", type=int, default=3)
+    p.add_argument("--xsec-token", default="", help="(配合 --note) 笔记访问令牌, 从笔记 URL ?xsec_token= 复制")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO),
@@ -379,9 +491,10 @@ def main(argv=None):
         elif args.user:
             rows = collect_user_notes(client, args.user, args.pages)
         elif args.note:
-            rows = collect_note_detail(client, args.note)
+            rows = collect_note_detail(client, args.note, xsec_token=args.xsec_token)
             if args.with_comments:
-                rows += collect_comments(client, args.note, args.max_comment_pages, schema="v2")
+                rows += collect_comments(client, args.note, args.max_comment_pages, schema="v2",
+                                         xsec_token=args.xsec_token)
         elif args.hotlist:
             rows = collect_hotlist(client, args.category, args.page_size)
         elif args.search_user:

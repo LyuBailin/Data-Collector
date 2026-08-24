@@ -170,9 +170,10 @@ def run_user(args, client, workspace):
 def run_note(args, client, workspace):
     topic = args.topic or f"note_{args.note}"
     run_dir = _make_run_dir(workspace, topic)
-    rows = collect_note_detail(client, args.note)
+    rows = collect_note_detail(client, args.note, xsec_token=args.xsec_token)
     if args.with_comments:
-        rows += collect_comments(client, args.note, args.max_comment_pages, schema="v2")
+        rows += collect_comments(client, args.note, args.max_comment_pages, schema="v2",
+                                 xsec_token=args.xsec_token)
     return _full_pipeline(run_dir, rows, label=f"note={args.note}")
 
 
@@ -206,6 +207,7 @@ def build_parser():
     p.add_argument("--sign-engine", choices=["legacy", "node", "browser"], default="browser")
     p.add_argument("--with-comments", action="store_true")
     p.add_argument("--max-comment-pages", type=int, default=3)
+    p.add_argument("--xsec-token", default="", help="(配合 --note) 笔记访问令牌, 从笔记 URL ?xsec_token= 复制")
     p.add_argument("--log-level", default="INFO")
     mode = p.add_mutually_exclusive_group(required=True)
     mode.add_argument("--keyword", help="关键词搜索笔记")

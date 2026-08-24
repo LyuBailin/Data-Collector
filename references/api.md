@@ -13,21 +13,36 @@
 | `X-s` / `X-t` | 由 `scripts/xhs_client.py` 计算并注入 |
 | `X-common-params` | JSON 字符串（`{deviceParams, sid, source, ...}`），由 cookie 中 `webBuild`、`a1` 等字段组合 |
 
-## 端点清单
+## 端点清单 (2026-08 实测)
 
-| 用途 | Method | Path | 关键 Query |
+> **重要**: 笔记搜索接口已迁移。当前 web 端搜索走
+> `so.xiaohongshu.com/api/sns/web/v2/search/notes`, 旧版
+> `edith.xiaohongshu.com/api/sns/web/v1/search/notes` 返回 `code:300011`
+> (废弃接口拒答, 并非账号风控)。v2 搜索/评论只能通过**页面驱动**方式采集
+> (打开搜索页/笔记页, 拦截页面自身请求), raw fetch 会被 Kong 网关 406 拒绝。
+
+| 用途 | Method | Host / Path | 关键参数 |
 | --- | --- | --- | --- |
-| 笔记搜索 | POST | `/api/sns/web/v1/search/notes` | `keyword`, `page`, `page_size`, `search_id`, `sort` |
+| 笔记搜索 (当前) | POST | `so.xiaohongshu.com/api/sns/web/v2/search/notes` | body: `keyword, page, page_size, search_id, sort, note_type, ext_flags:[], geo:"", image_formats:[...], session_id` |
+| 笔记搜索 (旧, 已废弃) | POST | `edith.xiaohongshu.com/api/sns/web/v1/search/notes` | 返回 300011 |
 | 用户搜索 | POST | `/api/sns/web/v1/search/users` | `keyword`, `page`, `page_size` |
 | 热门榜 | POST | `/api/sns/web/v1/search/hotlist` | `category`, `page_size` |
 | 首页 feed 推荐 | POST | `/api/sns/web/v1/feed` | `cursor_score`, `num` |
-| 单篇笔记详情 | GET | `/api/sns/web/v1/feed` | `source_note_id={id}` |
+| 单篇笔记详情 (页面驱动) | GET | `edith.../api/sns/web/v1/feed` | `source_note_id`, `xsec_token`, `xsec_source`, `source`; 或直接读笔记页 `window.__INITIAL_STATE__.note.noteDetailMap[id].note` |
 | 用户基本信息 | GET | `/api/sns/web/v1/user/other_info` | `target_user_id` |
 | 用户笔记列表 | GET | `/api/sns/web/v1/user/posted` | `user_id`, `cursor`, `num` |
 | 用户收藏笔记 | GET | `/api/sns/web/v1/user/collect` | `user_id`, `cursor`, `num` |
-| 笔记评论 | GET | `/api/sns/web/v1/comment/page` | `note_id`, `cursor`, `top_comment_id` |
+| 笔记评论 (当前) | GET | `edith.../api/sns/web/v2/comment/page` | `note_id`, `cursor`, `top_comment_id`, `xsec_token` |
+| 笔记评论 (旧) | GET | `/api/sns/web/v1/comment/page` | `note_id`, `cursor`, `top_comment_id` |
 | 子评论 | GET | `/api/sns/web/v1/comment/sub/page` | `note_id`, `root_comment_id`, `cursor` |
 | 话题笔记列表 | POST | `/api/sns/web/v1/page_topic/notes` | `topic_id`, `page_size`, `cursor` |
+
+### v2 搜索响应字段差异 (相对 v1)
+
+- 外层 item: `{id, model_type:"note", note_card:{...}, xsec_token}`, note_card 里**没有** `note_id` (在 item.id)。
+- 标题字段是 `display_title` (不是 `title`); 搜索卡片**不含 `desc` / tags / 时间戳** (只有 `corner_tag_info` 里的 `publish_time` "MM-DD")。
+- 互动字段: `interact_info.liked_count / collected_count / comment_count / shared_count` (字符串)。
+- 完整正文 / 标签 / 时间戳需要进笔记详情页 (`__INITIAL_STATE__`, 字段为 camelCase: `noteId / interactInfo.likedCount / tagList[].name / time / lastUpdateTime / xsecToken`)。
 
 ## X-s / X-t 签名
 
