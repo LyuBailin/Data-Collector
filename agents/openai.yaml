@@ -1,4 +1,4 @@
 interface:
   display_name: "小红书数据采集分析"
-  short_description: "小红书 cookie 注入 + 采集 / 清洗 / 增强 / 汇总分析"
-  default_prompt: "Use $xiaohongshu-harvester to collect and analyze 小红书 notes, comments, user profiles, or hotlist. Requires the user to supply their own login cookie at assets/cookies.json."
+  short_description: "小红书 cookie 注入 + 多关键词采集 / 跨 run 聚合 / 针对性总结"
+  default_prompt: "Use $xiaohongshu-harvester to research a 小红书 topic. Required flow: (1) discuss topic boundary with user; (2) let user pick research dimensions from candidates; (3) propose 1-3 keyword groups per dimension and let user confirm; (4) run pipeline.py for each keyword group with --topic <slug>; (5) run cross_analyze.py to aggregate, then write a targeted report citing note_id and source run for every claim. Requires the user to supply their own login cookie at assets/cookies.json."
