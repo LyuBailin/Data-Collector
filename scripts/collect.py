@@ -92,16 +92,27 @@ def normalize_note(note):
 
 
 def state_note_to_api(n):
-    """把笔记详情页 INITIAL_STATE 里的 camelCase note 转成 normalize_note 认识的形状。"""
+    """把 SSR/INITIAL_STATE 里的 camelCase 笔记 (详情页 note 或主页 noteCard) 转成 normalize_note 认识的形状。"""
     if not n:
         return {}
-    inter = n.get("interactInfo") or {}
+    inter = n.get("interactInfo") or n.get("interact_info") or {}
+    user = n.get("user") or {}
+    cover_url = ""
+    if isinstance(n.get("cover"), dict):
+        cover_url = n["cover"].get("urlDefault") or n["cover"].get("url") or n["cover"].get("urlPre") or ""
+    elif isinstance(n.get("imageList"), list) and n["imageList"]:
+        cover_url = (n["imageList"][0] or {}).get("urlDefault") or ""
     return {
         "note_id": n.get("noteId") or n.get("id"),
-        "title": n.get("title"),
+        "title": n.get("title") or n.get("displayTitle") or n.get("display_title"),
         "desc": (n.get("desc") or "").replace("[话题]", " "),
         "type": n.get("type"),
-        "user": n.get("user") or {},
+        "user": {
+            "user_id": user.get("userId") or user.get("user_id") or user.get("id"),
+            "nickname": user.get("nickName") or user.get("nickname") or user.get("nick_name"),
+            "fans": user.get("fans") or user.get("fansCount") or user.get("fans_count") or 0,
+            "red_official": bool(user.get("redOfficial") or user.get("red_official") or user.get("official")),
+        },
         "interact_info": {
             "liked_count": inter.get("likedCount"),
             "collected_count": inter.get("collectedCount"),
@@ -109,12 +120,11 @@ def state_note_to_api(n):
             "share_count": inter.get("shareCount"),
         },
         "tags": [t.get("name") for t in (n.get("tagList") or []) if isinstance(t, dict) and t.get("name")],
-        "time": n.get("time") or n.get("lastUpdateTime"),
-        "ip_location": n.get("ipLocation"),
-        "xsec_token": n.get("xsecToken"),
-        "share_info": n.get("shareInfo") or {},
-        "cover": {"url": ((n.get("imageList") or [{}])[0] or {}).get("urlDefault") or ""}
-        if isinstance(n.get("imageList"), list) and n.get("imageList") else "",
+        "time": n.get("time") or n.get("lastUpdateTime") or n.get("last_update_time"),
+        "ip_location": n.get("ipLocation") or n.get("ip_location"),
+        "xsec_token": n.get("xsecToken") or n.get("xsec_token"),
+        "share_info": n.get("shareInfo") or n.get("share_info") or {},
+        "cover": {"url": cover_url} if cover_url else "",
     }
 
 
@@ -239,6 +249,9 @@ def _collect_search_notes_page_driven(client, keyword, pages):
 
 
 def collect_user_notes(client, user_id, pages, cursor=""):
+    if client.sign_engine == "browser":
+        return _collect_user_notes_page_driven(client, user_id, pages)
+
     rows = []
     for _ in range(pages):
         params = {"num": 30, "cursor": cursor, "user_id": user_id, "image_formats": "jpg,webp,avif"}
@@ -257,6 +270,26 @@ def collect_user_notes(client, user_id, pages, cursor=""):
         LOG.info("user/posted user_id=%s 取得 %d, cursor=%s...", user_id, len(notes), cursor[:10])
         if not has_more or not cursor:
             break
+    return rows
+
+
+def _collect_user_notes_page_driven(client, user_id, pages):
+    """浏览器引擎专用: 打开用户主页, 拦截页面自身发出的 user/posted 响应。"""
+    from playwright_driver import ensure_loop, page_user_posted
+
+    items = ensure_loop().run_until_complete(page_user_posted(user_id, pages=pages))
+    rows = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        card = raw.get("noteCard") or raw.get("note_card") or raw
+        rows.append({
+            "endpoint": "user/posted",
+            "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "item": normalize_note(state_note_to_api(card)),
+            "raw": raw,
+        })
+    LOG.info("page user/posted user_id=%s 共 %d 条", user_id, len(rows))
     return rows
 
 
@@ -451,6 +484,9 @@ def _comment_rows_from_comments(comments, note_id):
 
 
 def collect_hotlist(client, category="general", page_size=50):
+    if client.sign_engine == "browser":
+        return _collect_hotlist_page_driven(client)
+
     body = {"category": category, "page_size": page_size}
     params = {"source": "web_hot_rank"}
     resp = client.post("/api/sns/web/v1/search/hotlist", params=params, body=body, referer=f"{BASE_HOST}/explore")
@@ -471,6 +507,30 @@ def collect_hotlist(client, category="general", page_size=50):
             "raw": raw,
         })
     LOG.info("search/hotlist category=%s 取得 %d", category, len(items))
+    return rows
+
+
+def _collect_hotlist_page_driven(client):
+    """浏览器引擎专用: 打开热门榜页, 拦截页面自身发出的 hotlist 响应。"""
+    from playwright_driver import ensure_loop, page_hotlist
+
+    items = ensure_loop().run_until_complete(page_hotlist())
+    rows = []
+    for raw in items:
+        rows.append({
+            "endpoint": "search/hotlist",
+            "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "item": {
+                "query": raw.get("query") or raw.get("title") or "",
+                "word_id": raw.get("word_id") or raw.get("id") or "",
+                "score": raw.get("score") or raw.get("view_count") or 0,
+                "category": raw.get("category") or "general",
+                "ts": raw.get("create_time") or raw.get("time") or 0,
+                "ts_iso": _ts_iso(raw.get("create_time") or raw.get("time")),
+            },
+            "raw": raw,
+        })
+    LOG.info("page hotlist 共 %d 条", len(rows))
     return rows
 
 

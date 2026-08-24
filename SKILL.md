@@ -1,132 +1,135 @@
 ---
 name: xiaohongshu-harvester
-description: 小红书 (xiaohongshu.com) 公开 / 半公开数据采集、清洗、增强与汇总分析 skill。覆盖关键词搜索笔记 / 用户主页笔记 / 单篇笔记详情 / 热门榜 / 评论等接口，提供基于 Playwright 的浏览器内签名、HTML/Markdown 清洗、话题与关键词增强、互动分布与词频报告。适用于需要离线本地化分析小红书内容的场景；当用户要求抓取 / 分析 / 导出小红书帖子、用户、热门榜或评论数据时使用本 skill。当用户希望绕过登录态抓取或绕过签名风控时拒绝执行。
+description: 小红书公开/半公开内容采集与本地化分析 skill。能力: 关键词搜索笔记、单篇笔记详情+评论、用户主页笔记、热门榜、用户搜索, 以及 collect→clean→enrich→analyze 全链路, 输出洞察式 Markdown 报告 + CSV 明细。适用: 用户要求抓取/分析/导出小红书笔记、评论、用户、热门榜数据时使用。前提: 用户提供本人账号的登录 cookie。约束: 不绕过登录态、不并发不高频、拒绝绕过签名风控或未授权数据的抓取。
 ---
 
-# 小红书数据采集 / 清洗 / 增强 / 汇总分析 (xiaohongshu-harvester)
+# 小红书采集分析 skill — Agent 操作手册
 
-本 skill 提供一条端到端 pipeline, 在用户提供的 cookie 上下文下完成小红书信息的本地化处理:
+> 本文档是给 agent 的操作指南: 什么场景用什么命令、遇到什么问题怎么处理。
+> 参考文档: `references/api.md`(接口实测) / `cookie.md`(cookie 维护) / `signing.md`(签名机制) / `output_schema.md`(字段定义)。
 
-```
-collect  ->  clean  ->  enrich  ->  analyze
-   raw        clean      enriched     report.md / summary.json
-```
+## 1. 能力与触发条件
 
-## 状态
-
-| 阶段 | 状态 | 说明 |
+| 用户意图 | 典型说法 | 状态 |
 | --- | --- | --- |
-| clean | ✅ 已验证 | 8 条 mock 数据端到端通过 |
-| enrich | ✅ 已验证 | jieba + 情感词典 + 热度 + 广告启发式 |
-| analyze | ✅ 已验证 | summary.json + report.md |
-| 采集 HTTP 客户端 | ✅ 已验证 | Playwright 浏览器引擎; 关键词搜索走**页面驱动** (打开搜索页拦截 v2 search 响应), 笔记详情/评论走笔记页 `__INITIAL_STATE__` + 页面评论响应 |
-| 签名 (X-s/X-t) | ✅ 已验证 | 浏览器内 `seccore_signv2` 跑通, 服务器返回 200 + 真实 JSON; raw fetch 对 so 搜索网关会 406, 已改页面驱动 |
+| 关键词话题分析 | "抓取/分析 关键词 X"、"小红书都在聊什么" | ✅ 推荐 `--enrich-notes` |
+| 单篇笔记详情 / 评论 | 给了笔记链接或 note_id | ✅ 需要 `xsec_token` |
+| 用户主页笔记 | "某个用户的笔记"、"这个博主的帖子" | ✅ SSR 首屏 + 滚动加载 |
+| 热门榜 / 热搜 | "热门榜"、"热搜词" | ⚠️ 页面 404, 新入口待逆向 |
+| 搜索用户 | "搜一下博主 X" | ⚠️ 未实测 |
 
-> **勘误 (2026-08)**: 之前记录的 `code:300011` 账号异常**并非账号风控** —— 那是旧版
-> `edith.../v1/search/notes` 接口废弃后的拒答。用户账号本身正常 (页面自身请求全部 `code:0`)。
-> 修复方式是把搜索切到 `so.xiaohongshu.com/api/sns/web/v2/search/notes` + 页面驱动采集。
+## 2. 开始前检查（每次任务必做）
 
-## 使用前提
+1. **Python 环境**: 使用 `data-collect` conda 环境（含 requests/jieba/playwright），首次运行先 `python -m playwright install chromium`。所有命令在仓库根目录执行。
+2. **Cookie**: `assets/cookies.json` 必须存在且有效。先跑 `python scripts/xhs_client.py whoami` 确认能解析。失效信号 `-101` / HTTP 401/403 → 停止并请用户重新导出（Chrome DevTools → Application → Cookies → 导出）。cookie 是敏感文件（.gitignore 已排除），**绝不写入 git / 聊天记录**。
+3. **从用户消息解析参数**:
+   - 笔记链接 `https://www.xiaohongshu.com/explore/<note_id>?xsec_token=<token>&...` → 提取 `note_id` 和 `xsec_token`（URL 里 `xsec_token=` 后面的值）。
+   - 用户主页链接 `https://www.xiaohongshu.com/user/profile/<user_id>` → 提取 `user_id`。
 
-* 已登录小红书的 Chrome, 用 DevTools / Cookie-Editor 导出 cookie 到 `assets/cookies.json` (格式见 `references/cookie.md`)。
-* 已创建 `data-collect` conda 环境并安装 `requests` / `jieba` / `beautifulsoup4` / `playwright`。
-* 第一次运行前执行 `python -m playwright install chromium` (下载 Chromium)。
-* 接受 XHS 反爬约束: **不绕过登录态, 不并发, 不高频**, 失败时停止并提示重新提供 cookie。
+## 3. 标准操作（按用户意图选命令）
 
-## 端到端流程
+### 3.1 关键词分析（最常用）
+```bash
+# 完整分析（推荐）: 搜索 + Top10 高互动笔记补全正文/标签/时间 + 评论
+python scripts/pipeline.py --keyword "关键词" --pages 3 --enrich-notes 10 --with-comments --workspace data/runs
 
-1. **加载 cookie**: `python scripts/xhs_client.py init-cookie`
-2. **采集 (collect)**: `python scripts/collect.py --keyword "露营" --pages 3 --out data/raw/search_露营.jsonl`
-3. **清洗 (clean)**: `python scripts/clean.py --in data/raw/...jsonl --out data/clean/...jsonl`
-4. **增强 (enrich)**: `python scripts/enrich.py --in data/clean/...jsonl --out data/enriched/...jsonl`
-5. **汇总分析 (analyze)**: `python scripts/analyze.py --in data/enriched/...jsonl --report report.md --summary summary.json`
-6. **一键**: `python scripts/pipeline.py --keyword "露营" --pages 3 --workspace data/`
+# 只要搜索 + 统计，不补全（快，但报告缺正文维度）
+python scripts/pipeline.py --keyword "关键词" --pages 3 --workspace data/runs
+```
+输出到 `data/runs/<日期>_<topic>/`（8 个文件，见 §5）。跑完向用户汇报：**report.md 路径 + 核心结论要点**（不要只丢一个路径）。
 
-## 关键约束
+### 3.2 单篇笔记 + 评论
+```bash
+python scripts/pipeline.py --note <note_id> --with-comments --xsec-token <token> --workspace data/runs
+```
+`xsec_token` 必须从笔记 URL 复制；缺失可能拿不到正文/评论。
 
-### Cookie 与登录态
-- 仅使用用户自己账号的 cookie, 不要把 cookie 写入 git / 共享位置 / 聊天记录。
-- 一旦 `code = -101` / `login_required` / `account.frozen` / HTTP 401/403 / `code = 300011` (账号状态异常), 必须立刻停止并提示重新提供 cookie。
-- 详细字段含义、维护流程、失效信号见 `references/cookie.md`。
+### 3.3 用户主页笔记
+```bash
+python scripts/pipeline.py --user <user_id> --pages 2 --workspace data/runs
+```
 
-### X-s / X-t 签名
-- 默认签名引擎 `--sign-engine browser` 通过 Playwright 启动 Chromium, 注入 cookie, 加载 `xiaohongshu.com` 触发所有静态 bundle + 动态 SDK (`window.mnsv2`), 然后 `page.evaluate(fetch(url, ...))` 发请求。浏览器自己的 axios 拦截器自动加 `X-s` / `X-t` / `X-common-params` / `X-mns` / `X-web-s` / `X-web-t`。
-- **注意 (2026-08 实测)**: 关键词搜索接口已迁移到 `so.xiaohongshu.com/api/sns/web/v2/search/notes`。该网关会校验页面 axios 完整链路附加的 `x-s-common` 等额外签名头, **raw fetch 会被 406 拒绝**; 旧 v1 接口在 edith 上返回 `code:300011` (废弃拒答, 不是账号风控)。因此浏览器引擎对搜索 / 笔记详情 / 评论统一改为**页面驱动**: 打开搜索页 / 笔记页, 拦截页面自身发出的 API 响应 (`scripts/playwright_driver.py::page_search_notes / page_note_detail`)。响应字段差异见 `references/api.md`。
-- `--sign-engine node` 和 `--sign-engine legacy` 是为离线调试 / 教学保留, 当前 XHS web 上不会被服务端接受 (签名算法已经被 seccore_signv2 替换)。
-- 签名引擎的所有细节见 `references/signing.md`。
+### 3.4 只要原始数据（不要报告）
+```bash
+python scripts/collect.py --keyword "关键词" --pages 3 --out data/raw/x.jsonl
+```
 
-### 限速 / 风控
-- 默认每次请求 `1.0–2.0s` 随机 jitter; 抓取深度默认 ≤3 页。
-- 浏览器引擎每次抓取会复用同一个 `BrowserContext` (避免重复启动 Chromium)。`pipeline.py` / `collect.py` 结束时自动关闭浏览器单例; 长驻进程里也可手动执行 `python scripts/playwright_driver.py --shutdown`。
-- 连续 5 次空数据 / 风控 `-102` 时暂停 60s 重试 1 次, 仍失败则退出。
+### 3.5 分阶段调试
+```bash
+python scripts/collect.py --keyword "关键词" --pages 3 --out data/raw/x.jsonl
+python scripts/clean.py   --in data/raw/x.jsonl --out data/clean/x.jsonl
+python scripts/enrich.py  --in data/clean/x.jsonl --out data/enriched/x.jsonl
+python scripts/analyze.py --in data/enriched/x.jsonl --report x.report.md --summary x.summary.json
+```
 
-## 参考资源
+## 4. 参数速查
 
-- `references/cookie.md` — cookie 字段、维护流程、安全提示。
-- `references/api.md` — 接口端点、参数、签名约定摘要。
-- `references/signing.md` — X-s/X-t 签名机制详解 + 浏览器引擎原理。
-- `references/output_schema.md` — 每个阶段 JSONL / JSON / MD 字段定义。
-- `scripts/` — 可独立运行的 Python 脚本 (采集 / 清洗 / 增强 / 分析)。
-- `scripts/playwright_driver.py` — 浏览器引擎, 单例 BrowserContext。
-- `scripts/capture_sdk.py` — 用 Playwright 抓 XHS 首页 JS bundle (一次性, 已生成结果)。
-- `assets/bundles/` — XHS 首页 JS bundle + 动态 SDK (`.gitignore` 排除可重建)。
+| 参数 | 适用模式 | 说明 |
+| --- | --- | --- |
+| `--keyword` / `--pages` | keyword | 关键词与页数（默认 3 页 ≈ 60 条；搜索卡片无正文/时间戳） |
+| `--enrich-notes N` | keyword | 对热度 Top N 补全正文/标签/时间戳（推荐 10） |
+| `--with-comments` | keyword/note | 同时抓评论（补全时评论来自同一页面导航，不额外耗请求） |
+| `--note` / `--user` / `--hotlist` / `--search-user` | 模式 | 互斥，必须且只能选一个 |
+| `--xsec-token` | note | 笔记访问令牌 |
+| `--topic` | 全部 | run folder 名字后缀（默认由 keyword/user/note 推断） |
+| `--workspace` | 全部 | 输出根目录（默认 `data/runs`，每次新建 `<日期>_<topic>` 子目录） |
+| `--sign-engine` | 全部 | 默认 `browser`（页面驱动）；`node`/`legacy` 仅供调试，当前 XHS 拒绝 |
 
-## 命令速查
+## 5. 输出物（run folder）
+
+| 文件 | 内容 |
+| --- | --- |
+| `raw.jsonl` / `clean.jsonl` / `enriched.jsonl` | collect / clean / enrich 各阶段数据 |
+| `report.md` | 洞察式报告：核心结论 / 数据质量 / 互动热度分布(直方图) / 关键词 / 话题×互动 / 情感×互动 / Top 笔记(正文摘要) / Top 用户 / 评论分析 / 风险 / 方法论 |
+| `summary.json` | 机器可读统计 |
+| `notes.csv` / `comments.csv` | Excel 可直接打开的明细（UTF-8 BOM） |
+
+## 6. 故障排查（Agent 决策表）
+
+| 症状 | 原因 | 处理 |
+| --- | --- | --- |
+| 搜索返回 `code:300011` | 旧 v1 接口废弃（内置已是 v2 页面驱动） | 无需处理；若仍出现，确认没被手动切成 node/legacy 引擎 |
+| `HTTP 406` / `Failed to fetch` | raw fetch 被网关拒 / 页面 fetch 包装偶发 | 走页面驱动路径；降低频率，等几分钟重试 |
+| `-101` / HTTP 401/403 | cookie 失效 | **停止**，请用户重新导出 cookie |
+| `-102` / 连续空数据 | 风控触发 | 等 60s 重试 1 次，仍失败则退出并提示 |
+| 笔记详情拿不到正文 | `xsec_token` 缺失/失效 | 从笔记 URL 复制 xsec_token 重试 |
+| 报告缺正文/话题/时间分布 | v2 搜索卡片不含正文（接口限制） | 加 `--enrich-notes N` 补全 Top 笔记 |
+| 用户主页只有少量笔记 | SSR 首屏 + 滚动加载，或该用户笔记少 | `--pages` 触发滚动；数据量本身受页面限制 |
+| `--hotlist` 报错 | 热门榜页面已 404，新入口未逆向 | 告知用户该模式暂不可用 |
+
+## 7. 红线与合规（必须遵守）
+
+- 仅使用用户本人账号的 cookie；**不绕过登录态、不绕过签名风控**。
+- 默认限速 1–2s/请求，抓取 ≤3 页，不并发。
+- 一旦出现 `-101` / 登录失效 / 账号冻结信号，立即停止并提示，不自动重试打爆接口。
+- cookie 不入 git / 聊天记录 / 共享位置；数据仅供用户本地分析。
+
+## 8. 命令速查（完整）
 
 ```bash
-# 0) 准备
 conda activate data-collect
-python -m playwright install chromium
+python -m playwright install chromium   # 首次
 
-# 1) 加载 cookie
+# cookie 检查 / 加载
+python scripts/xhs_client.py whoami
 python scripts/xhs_client.py init-cookie
 
-# 2) 一键 pipeline (关键词搜索 + 整链路分析, 默认 browser 引擎)
-python scripts/pipeline.py --keyword "露营装备" --pages 3 --workspace data/
+# 关键词 + 补全 + 评论（推荐完整流程）
+python scripts/pipeline.py --keyword "hc 缩减" --pages 3 --enrich-notes 10 --with-comments --workspace data/runs
 
-# 2b) 关键词 + 热度 Top N 笔记补全正文/评论 (推荐: 报告更有料)
-python scripts/pipeline.py --keyword "hc 缩减" --pages 3 --enrich-notes 10 --with-comments --workspace data/
+# 单篇笔记 + 评论
+python scripts/pipeline.py --note <note_id> --with-comments --xsec-token <token> --workspace data/runs
 
-# 3) 分阶段
-python scripts/collect.py --keyword "露营装备" --pages 3 --out data/raw/search.jsonl
-python scripts/clean.py   --in  data/raw/search.jsonl  --out data/clean/search.jsonl
-python scripts/enrich.py  --in  data/clean/search.jsonl --out data/enriched/search.jsonl
-python scripts/analyze.py --in  data/enriched/search.jsonl \
-                          --report data/search.report.md --summary data/search.summary.json
+# 用户主页
+python scripts/pipeline.py --user <user_id> --pages 2 --workspace data/runs
 
-# 4) 切换签名引擎 (默认 browser)
-python scripts/collect.py --sign-engine node --keyword "test" --pages 1 --out /tmp/x.jsonl  # 调试用, 当前 XHS 拒绝
-python scripts/collect.py --sign-engine legacy --keyword "test" --pages 1 --out /tmp/x.jsonl  # 调试用, 当前 XHS 拒绝
-
-# 5) 用户主页
+# 只采集不分析
+python scripts/collect.py --keyword "关键词" --pages 3 --out data/raw/x.jsonl
+python scripts/collect.py --note <note_id> --with-comments --xsec-token <token> --out data/raw/note.jsonl
 python scripts/collect.py --user <user_id> --pages 3 --out data/raw/user.jsonl
 
-# 6) 单篇笔记 + 评论 (浏览器引擎: 需要 xsec_token, 从笔记 URL 复制)
-python scripts/collect.py --note <note_id> --with-comments --xsec-token <xsec_token> --out data/raw/note.jsonl
-python scripts/pipeline.py --note <note_id> --with-comments --xsec-token <xsec_token> --workspace data/runs
-
-# 7) 热门榜
-python scripts/collect.py --hotlist --out data/raw/hotlist.jsonl
-
-# 8) 浏览器引擎直接探针 / 自定义请求
-python scripts/playwright_driver.py --probe
-python scripts/playwright_driver.py --request '{"method":"GET","url":"/api/sns/web/v1/search/trending/list","headers":{}}'
-
-# 9) 关闭浏览器进程 (结束 / 长驻进程手动关闭)
-python scripts/playwright_driver.py --shutdown
+# 浏览器引擎工具
+python scripts/playwright_driver.py --probe        # 检查浏览器/SDK 状态
+python scripts/playwright_driver.py --shutdown     # 关闭浏览器单例（pipeline 已自动做）
+python scripts/capture_sdk.py                      # 重抓 XHS JS bundle（仅改版时用）
 ```
-
-## 已验证
-
-* `clean / enrich / analyze` 三阶段在 mock 数据 (`assets/sample_data.jsonl`) 上端到端跑通, 报告含 8 条记录的关键词、互动率、热度榜、用户聚合、广告样本。
-* `xhs_client.py init-cookie / whoami` 在 cookie 文件存在时正常解析。
-* `scripts/playwright_driver.py` 启动 Chromium, 加载 cookie, 触发 XHS 静态 + 动态脚本, 实际发请求 → 服务器返回 200 + JSON。
-* `scripts/capture_sdk.py` 抓取 XHS 首页 JS bundle 到 `assets/bundles/`, 包括动态 SDK `sdk.js` (定义了 `window.mnsv2`)。
-* `pipeline.py` 串行调度各阶段。
-
-## 注意事项
-
-1. **Cookie 状态**: 浏览器引擎能成功发送签名请求, 但 XHS 服务端返回的 `code` 是基于账号本身的状态。`code:300011` 通常表示账号被风控, 需要换用新 cookie。`code:0` 表示成功。
-2. **API host**: XHS 真正的 API 服务器是 `edith.xiaohongshu.com`, 不是 `www.xiaohongshu.com`。`scripts/playwright_driver.py` 自动处理这个重定向 (相对 URL `/api/...` 在浏览器里会被自动解析到 `edith.xiaohongshu.com`)。
-3. **首次启动慢**: Playwright 第一次启动会下载 Chromium (~150MB)。之后启动约 2-3 秒, 后续抓取每次约 1-3 秒 (受 XHS 限速)。
-4. **沙箱粘性**: `playwright_driver.py` 把浏览器做成单例, 复用同一个 `BrowserContext`。第二次抓取跳过 Chromium 启动, 秒级响应。

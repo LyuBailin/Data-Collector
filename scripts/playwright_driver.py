@@ -311,6 +311,108 @@ async def page_note_detail(note_id: str, xsec_token: str = "", max_comment_pages
     return {"note": note, "comments": comments}
 
 
+async def page_user_posted(user_id: str, pages: int = 1) -> List[Dict[str, Any]]:
+    """页面驱动: 打开用户主页, 从 INITIAL_STATE.user.notes 提取笔记。
+
+    当前 web 端用户主页笔记是 SSR 注入的 (不发 user/posted API);
+    滚动触发更多后重新读取并去重。
+    """
+    page = await ensure_browser()
+
+    async def _read_notes():
+        return await page.evaluate(
+            """() => {
+                const unref = (v) => v && v.__v_isRef
+                    ? (v._rawValue !== undefined ? v._rawValue : v._value) : v;
+                const u = (window.__INITIAL_STATE__ || {}).user || {};
+                const notes = unref(u.notes);
+                if (!Array.isArray(notes)) return [];
+                const seen = new WeakSet();
+                const safe = (o) => {
+                    if (o === undefined || o === null) return null;
+                    const s = JSON.stringify(o, (k, v) => {
+                        if (typeof v === 'object' && v !== null) {
+                            if (seen.has(v)) return undefined;
+                            seen.add(v);
+                        }
+                        return v;
+                    });
+                    return s ? JSON.parse(s) : null;
+                };
+                return notes.map(x => (Array.isArray(x) ? x[0] : x))
+                            .map(safe).filter(Boolean);
+            }"""
+        ) or []
+
+    url = f"{DEFAULT_BASE_URL}/user/profile/{user_id}"
+    LOG.info("page_user_posted: goto %s (pages=%d)", url, pages)
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+    except Exception as exc:
+        LOG.warning("page_user_posted goto: %s", exc)
+    await page.wait_for_timeout(6000)
+
+    seen_ids: set = set()
+    captured: List[Dict[str, Any]] = []
+
+    def _merge(notes):
+        for it in notes:
+            if not isinstance(it, dict):
+                LOG.warning("page_user_posted: 跳过非 dict 条目 (%s)", type(it).__name__)
+                continue
+            nid = it.get("note_id") or it.get("id")
+            if nid and nid in seen_ids:
+                continue
+            if nid:
+                seen_ids.add(nid)
+            captured.append(it)
+
+    _merge(await _read_notes())
+    if not captured:
+        raise RuntimeError(f"用户主页未返回笔记 (user_id={user_id}) —— 可能触发风控或用户不存在, 请稍后再试")
+
+    for _ in range(max(0, pages - 1)):
+        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        await page.wait_for_timeout(3500)
+        _merge(await _read_notes())
+    LOG.info("page_user_posted: captured %d notes", len(captured))
+    return captured
+
+
+async def page_hotlist() -> List[Dict[str, Any]]:
+    """页面驱动: 打开热门榜页, 拦截页面自身发出的 hotlist 响应。"""
+    page = await ensure_browser()
+    captured: List[Dict[str, Any]] = []
+
+    async def on_response(resp):
+        url = resp.url
+        if "api/sns/web/" not in url or "hotlist" not in url:
+            return
+        try:
+            payload = json.loads(await resp.text())
+        except Exception:
+            return
+        for it in (payload.get("data") or {}).get("items") or []:
+            captured.append(it)
+
+    page.on("response", lambda r: asyncio.create_task(on_response(r)))
+
+    url = f"{DEFAULT_BASE_URL}/hotlist"
+    LOG.info("page_hotlist: goto %s", url)
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+    except Exception as exc:
+        LOG.warning("page_hotlist goto: %s", exc)
+    for _ in range(40):
+        if captured:
+            break
+        await page.wait_for_timeout(500)
+    if not captured:
+        raise RuntimeError("热门榜页未返回数据 —— 可能触发风控或页面路径变更, 请稍后再试")
+    LOG.info("page_hotlist: captured %d items", len(captured))
+    return captured
+
+
 async def shutdown():
     global _browser_ctx, _browser_page, _playwright
     if _browser_ctx:
