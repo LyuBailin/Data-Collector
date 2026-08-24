@@ -1,3 +1,4 @@
 interface:
   display_name: "小红书数据采集分析"
   short_description: "小红书 cookie 注入 + 采集 / 清洗 / 增强 / 汇总分析"
+  default_prompt: "Use $xiaohongshu-harvester to collect and analyze 小红书 notes, comments, user profiles, or hotlist. Requires the user to supply their own login cookie at assets/cookies.json."

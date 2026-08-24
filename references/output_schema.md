@@ -50,8 +50,13 @@
   "topics": ["露营装备", "周末出游"],
   "sentiment": "positive | neutral | negative",
   "sentiment_score": 0.61,
-  "embedding_summary": "轻量化露营帐篷评测，特点是...",
-  "score": 0.78      // 内部热度打分 = 互动率 + 时效 + 完读
+  "summary": "轻量化露营帐篷评测，特点是...",
+  "heat_score": 7.68,            // log1p(赞 + 3×收藏 + 2×评论 + 4×分享) × 时效因子 (7 天半衰)
+  "ad_like_score": 0.0,          // 启发式: # + @ + 外部链接 + 标签数
+  "is_short": false,             // desc 字数 < 40 标记为短笔记
+  "is_sub_comment": false,       // 仅评论行; true 表示子评论
+  "parent_comment_id": null,     // 仅子评论行; 指向顶层评论
+  "detail_enriched": true        // 笔记正文由详情页补全过 (而非仅来自搜索卡片)
 }
 ```
 

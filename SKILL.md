@@ -15,8 +15,8 @@ description: 小红书公开/半公开内容采集与本地化分析 skill。能
 | 关键词话题分析 | "抓取/分析 关键词 X"、"小红书都在聊什么" | ✅ 推荐 `--enrich-notes` |
 | 单篇笔记详情 / 评论 | 给了笔记链接或 note_id | ✅ 需要 `xsec_token` |
 | 用户主页笔记 | "某个用户的笔记"、"这个博主的帖子" | ✅ SSR 首屏 + 滚动加载 |
-| 热门榜 / 热搜 | "热门榜"、"热搜词" | ⚠️ 页面 404, 新入口待逆向 |
-| 搜索用户 | "搜一下博主 X" | ⚠️ 未实测 |
+| 热门榜 / 热搜 | "热门榜"、"热搜词" | ✅ 页面驱动抓取; 频率敏感 |
+| 搜索用户 | "搜一下博主 X" | ✅ 接口直接抓取, 单页 ~20 条 |
 
 ## 2. 开始前检查（每次任务必做）
 
@@ -36,7 +36,7 @@ python scripts/pipeline.py --keyword "关键词" --pages 3 --enrich-notes 10 --w
 # 只要搜索 + 统计，不补全（快，但报告缺正文维度）
 python scripts/pipeline.py --keyword "关键词" --pages 3 --workspace data/runs
 ```
-输出到 `data/runs/<日期>_<topic>/`（8 个文件，见 §5）。跑完向用户汇报：**report.md 路径 + 核心结论要点**（不要只丢一个路径）。
+输出到 `data/runs/<日期>_<topic>/`（7 个文件，见 §5）。跑完向用户汇报：**report.md 路径 + 核心结论要点**（不要只丢一个路径）。
 
 ### 3.2 单篇笔记 + 评论
 ```bash
@@ -72,8 +72,12 @@ python scripts/analyze.py --in data/enriched/x.jsonl --report x.report.md --summ
 | `--note` / `--user` / `--hotlist` / `--search-user` | 模式 | 互斥，必须且只能选一个 |
 | `--xsec-token` | note | 笔记访问令牌 |
 | `--topic` | 全部 | run folder 名字后缀（默认由 keyword/user/note 推断） |
-| `--workspace` | 全部 | 输出根目录（默认 `data/runs`，每次新建 `<日期>_<topic>` 子目录） |
+| `--workspace` | 全部 (仅 pipeline.py) | 输出根目录（默认 `data/runs`，每次新建 `<日期>_<topic>` 子目录） |
 | `--sign-engine` | 全部 | 默认 `browser`（页面驱动）；`node`/`legacy` 仅供调试，当前 XHS 拒绝 |
+| `--category` | hotlist | 热门榜分类，默认 `general` |
+| `--page-size` | keyword / hotlist | 单页笔记/热门词条数，默认 20 / 50 |
+| `--sort` | keyword | 搜索排序：`general`（默认）/`popular`/`time_descending` |
+| `--max-comment-pages` | note (with --with-comments) | 评论翻页数，默认 3 |
 
 ## 5. 输出物（run folder）
 
@@ -95,7 +99,7 @@ python scripts/analyze.py --in data/enriched/x.jsonl --report x.report.md --summ
 | 笔记详情拿不到正文 | `xsec_token` 缺失/失效 | 从笔记 URL 复制 xsec_token 重试 |
 | 报告缺正文/话题/时间分布 | v2 搜索卡片不含正文（接口限制） | 加 `--enrich-notes N` 补全 Top 笔记 |
 | 用户主页只有少量笔记 | SSR 首屏 + 滚动加载，或该用户笔记少 | `--pages` 触发滚动；数据量本身受页面限制 |
-| `--hotlist` 报错 | 热门榜页面已 404，新入口未逆向 | 告知用户该模式暂不可用 |
+| `--hotlist` 报错 / 空数据 | 热门榜页面驱动触发风控或路径变更 | 等几分钟降频重试；持续失败再排查页面路径 |
 
 ## 7. 红线与合规（必须遵守）
 
@@ -122,6 +126,12 @@ python scripts/pipeline.py --note <note_id> --with-comments --xsec-token <token>
 
 # 用户主页
 python scripts/pipeline.py --user <user_id> --pages 2 --workspace data/runs
+
+# 热门榜 (页面驱动, 频率敏感)
+python scripts/pipeline.py --hotlist --category general --workspace data/runs
+
+# 关键词搜用户
+python scripts/pipeline.py --search-user "小红书博主" --pages 1 --workspace data/runs
 
 # 只采集不分析
 python scripts/collect.py --keyword "关键词" --pages 3 --out data/raw/x.jsonl
