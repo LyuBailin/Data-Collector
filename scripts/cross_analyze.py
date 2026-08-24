@@ -1,21 +1,31 @@
 # -*- coding: utf-8 -*-
 """
-cross_analyze.py - 跨 run 聚合分析
+cross_analyze.py - 跨 run 聚合分析 (维度由 agent 自由定义)
 
 agent 完成多关键词 pipeline 跑完后, 调用此脚本把多个 run 的 enriched.jsonl
-按调研维度合并, 输出结构化 JSON 给 agent 写报告时直接读。
+按 agent 定义的维度聚合, 输出结构化 JSON 给 agent 写报告时直接读。
 
-不做语义聚类, 只做关键词命中 + 正文字面匹配; 输出 JSON 后由 agent
-基于用户关心的具体问题, 标注 note_id / 评论原文生成针对性总结。
+设计原则: 维度不内置、不硬编码。agent 根据与用户讨论产出的调研方向,
+自由设计维度与关键词集, 通过 --dimensions 一次性传入。脚本只做
+"关键词命中 -> 按赞数排序 -> 落盘" 的纯工具, 不做语义聚类, 也不预设任何
+主题相关词汇 (护肤用"烂脸"、穿搭用"版型"这类领域词由 agent 提供)。
 
 CLI:
-  python scripts/cross_analyze.py --runs <slug1>,<slug2>... \\
-      --dimensions hc,interview,company \\
-      --output data/runs/_cross_analyze.json
+  python scripts/cross_analyze.py \\
+      --runs pants183,daman,pangnansheng,damanpinpai \\
+      --dimensions "搭配:穿搭,搭配,显瘦,显高,遮肚,版型;品牌:大码,微胖,胖男生,品牌,店铺" \\
+      --workspace data/runs \\
+      --output data/runs/_183chuan.json
 
-  slug 是 run folder 名字后缀 (pipeline --topic 传入), 不是日期前缀。
-  维度名: hc / interview / company / lifestyle / safety / consumer
-  (按需扩展, 默认只跑 hc / interview / company 三档)
+--dimensions 格式: "维度名:关键词1,关键词2;维度名2:关键词3,关键词4"
+  - 维度名: 短 ASCII 标识 (如 fit / brand), 同时作为报告章节标题
+  - 关键词: 必须是该内容社区实际使用的词; 每个维度 3~8 个词为宜
+  - 多个维度用分号分隔; 任何段不合法都会在参数解析期报错 (fail loud)
+
+可选:
+  --top-notes N      每个维度输出 Top N 笔记 (默认 10)
+  --top-comments N   每个维度输出 Top N 评论 (默认 10)
+  --full-notes N     每个维度输出带完整正文的笔记数 (默认 5)
 """
 from __future__ import annotations
 
@@ -46,63 +56,39 @@ if str(HERE) not in sys.path:
 
 LOG_NAME = "cross_analyze"
 
-# 维度关键词集. 粗糙够用; agent 后续可基于 JSON 二次过滤.
-DIM_KEYWORDS: Dict[str, Set[str]] = {
-    "hc": {
-        # HC 缩减 / 面试机会
-        "缩招", "HC 缩减", "HC 砍", "没 HC", "hc 缩减", "hc 砍", "没 hc",
-        "hc 不够", "hc 充足", "hc 还行", "hc 多", "扩招", "逆势扩招", "回暖",
-        "招聘回暖", "hc 缩水", "砍 hc", "HC 缩", "招满",
-        # 秋招节奏
-        "提前批", "秋招", "秋招提前批", "校招", "暑期实习", "暑期转正",
-        "池子", "泡池子", "排序", "活水",
-    },
-    "interview": {
-        # 面试经验 / 准备策略
-        "面经", "面试", "一面", "二面", "三面", "HR 面", "群面", "技术面",
-        "笔试", "算法题", "leetcode", "代码题", "系统设计", "反问",
-        "自我介绍", "面试技巧", "面试经验", "面试准备", "实习面试",
-        "面试官", "通过", "拿到 offer", "上岸", "挂了", "挂了挂了",
-    },
-    "company": {
-        # 公司 / 行业口碑
-        "大厂", "中厂", "字节", "阿里", "腾讯", "美团", "京东", "百度",
-        "拼多多", "快手", "小红书", "华为", "华子", "小米", "滴滴",
-        "b 站", "bilibili", "微软", "外企", "国企", "央企", "银行",
-        "事业编", "考公",
-        # 工作强度 / 待遇
-        "wlb", "955", "1075", "996", "007", "加班", "内卷", "卷",
-        "35 岁", "中年危机", "裁员", "被裁", "被优化", "降薪",
-        "工作氛围", "leader", "技术栈", "晋升", "职级",
-        # 负面口碑
-        "避雷", "吐槽", "毁约", "压价", "低薪",
-    },
-    "lifestyle": {
-        # 露营 / 旅游 / 户外
-        "露营", "帐篷", "天幕", "营地", "烧烤", "野餐", "徒步",
-        "装备", "新手", "出行", "周边游", "户外",
-        # 穿搭 / 服饰 / 体型
-        "穿搭", "搭配", "显瘦", "显高", "遮肚", "版型", "上身效果",
-        "大码", "微胖", "胖男生", "梨形", "苹果型", "高个子",
-        "男生穿搭", "女装", "ootd", "日常穿搭", "通勤穿搭",
-        "男装", "女生穿搭", "体型",
-    },
-    "consumer": {
-        # 消费品 / 数码 / 护肤 / 家居 等
-        "护肤", "彩妆", "口红", "粉底", "面膜", "精华",
-        "手机", "笔记本", "耳机", "相机", "家电",
-        "回购", "种草", "避雷", "测评", "好物",
-    },
-    "safety": {
-        # 硬件/户外/物理事故
-        "危险", "隐患", "翻车", "出事故", "事故", "翻车现场",
-        "漏电", "起火", "爆炸", "烫伤", "受伤", "中毒", "卫生问题",
-        # 护肤/化妆品/食物 类身体损伤
-        "烂脸", "过敏", "红痒", "刺痛", "爆痘", "闭口", "烂脸警告",
-        "用了烂脸", "烂脸避雷", "烂脸实录", "踩雷烂脸",
-        "致痘", "致敏", "激素脸", "敏感肌", "屏障受损", "烂脸了",
-    },
-}
+
+# ----------------------------- 维度解析 -----------------------------
+
+
+def parse_dimensions(raw: str) -> Dict[str, Set[str]]:
+    """解析 'name:kw1,kw2;name2:kw3,kw4' -> {name: {kw...}}.
+
+    任何段不合法 (缺冒号 / 空维度名 / 空关键词 / 维度名重复) 都直接抛错,
+    由调用方在参数解析期 fail loud, 不静默跳过。
+    """
+    out: Dict[str, Set[str]] = {}
+    for chunk in raw.split(";"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        if ":" not in chunk:
+            raise ValueError(f"维度段 '{chunk}' 缺冒号, 应为 '维度名:关键词1,关键词2'")
+        name, kws = chunk.split(":", 1)
+        name = name.strip()
+        kw_set = {k.strip() for k in kws.split(",") if k.strip()}
+        if not name:
+            raise ValueError(f"维度段 '{chunk}' 维度名为空")
+        if not kw_set:
+            raise ValueError(f"维度段 '{chunk}' 关键词为空")
+        if name in out:
+            raise ValueError(f"维度名重复: '{name}'")
+        out[name] = kw_set
+    if not out:
+        raise ValueError("--dimensions 为空, 至少需要一个 '维度名:关键词' 段")
+    return out
+
+
+# ----------------------------- 命中与加载 -----------------------------
 
 
 def _has_any(text: str, words: Set[str]) -> bool:
@@ -114,7 +100,6 @@ def _has_any(text: str, words: Set[str]) -> bool:
 
 def _load_run(slug: str, workspace: Path) -> List[dict]:
     """加载单个 run folder 的 enriched.jsonl. 支持同 slug 的多个副本 (取最新的)."""
-    today = None
     candidates = []
     for p in workspace.iterdir():
         if not p.is_dir():
@@ -123,20 +108,17 @@ def _load_run(slug: str, workspace: Path) -> List[dict]:
         parts = p.name.split("_", 1)
         if len(parts) != 2:
             continue
-        date_part, name_part = parts
-        # 去掉 _N 后缀
+        name_part = parts[1]
         name_part = re.sub(r"_\d+$", "", name_part)
         if name_part != slug:
             continue
-        today = date_part  # 用最新一次扫到的日期
-        candidates.append((p, name_part))
+        candidates.append(p)
 
     if not candidates:
         return []
     # 取最后一个 (按字典序, _2 > _1 > base)
-    candidates.sort(key=lambda x: x[0].name)
-    run_dir, _ = candidates[-1]
-    f = run_dir / "enriched.jsonl"
+    candidates.sort(key=lambda p: p.name)
+    f = candidates[-1] / "enriched.jsonl"
     if not f.exists():
         return []
     out = []
@@ -193,24 +175,21 @@ def _comments_by_dim(records: List[dict], dim_words: Set[str]) -> List[dict]:
     return out
 
 
-def aggregate(runs: List[str], dimensions: List[str], workspace: Path,
-              custom_dims: Dict[str, Set[str]] = None) -> dict:
-    custom_dims = custom_dims or {}
-    effective_keywords: Dict[str, Set[str]] = {**DIM_KEYWORDS, **custom_dims}
+# ----------------------------- 聚合 -----------------------------
+
+
+def aggregate(runs: List[str], dimensions: Dict[str, Set[str]], workspace: Path,
+              top_notes: int = 10, top_comments: int = 10, full_notes: int = 5) -> dict:
     out: dict = {
         "by_dimension": {},
         "totals": {
             "runs": runs,
             "notes_total": 0,
             "comments_total": 0,
-            "dimensions": dimensions,
+            "dimensions": sorted(dimensions),
         },
     }
-    for dim in dimensions:
-        words = effective_keywords.get(dim)
-        if not words:
-            print(f"WARN: unknown dimension '{dim}', skip", file=sys.stderr)
-            continue
+    for dim, words in dimensions.items():
         dim_notes: List[dict] = []
         dim_comments: List[dict] = []
         per_run: Dict[str, dict] = {}
@@ -228,15 +207,15 @@ def aggregate(runs: List[str], dimensions: List[str], workspace: Path,
                 c["run"] = slug
                 dim_comments.append(c)
         # 排序取 Top
-        top_notes = sorted(dim_notes, key=lambda x: (x["liked"] or 0), reverse=True)[:10]
-        top_comments = sorted(
+        top_n = sorted(dim_notes, key=lambda x: (x["liked"] or 0), reverse=True)[:top_notes]
+        top_c = sorted(
             [c for c in dim_comments if not c["is_sub"]],
             key=lambda x: (x["liked"] or 0), reverse=True,
-        )[:10]
-        full_notes = sorted(
+        )[:top_comments]
+        full = sorted(
             [n for n in dim_notes if n["desc_plain"]],
             key=lambda x: (x["liked"] or 0), reverse=True,
-        )[:5]
+        )[:full_notes]
         out["by_dimension"][dim] = {
             "notes_count": len(dim_notes),
             "comments_count": len(dim_comments),
@@ -247,7 +226,7 @@ def aggregate(runs: List[str], dimensions: List[str], workspace: Path,
                     "liked": n["liked"], "comment_count": n["comment_count"],
                     "has_body": bool(n["desc_plain"]),
                 }
-                for n in top_notes
+                for n in top_n
             ],
             "top_comments_by_liked": [
                 {
@@ -255,7 +234,7 @@ def aggregate(runs: List[str], dimensions: List[str], workspace: Path,
                     "note_id": c["note_id"], "content": c["content"],
                     "liked": c["liked"], "user": c["user"],
                 }
-                for c in top_comments
+                for c in top_c
             ],
             "full_notes": [
                 {
@@ -265,7 +244,7 @@ def aggregate(runs: List[str], dimensions: List[str], workspace: Path,
                     "user": n["user"], "ts_iso": n["ts_iso"],
                     "share_url": n["share_url"],
                 }
-                for n in full_notes
+                for n in full
             ],
         }
         out["totals"]["notes_total"] += len(dim_notes)
@@ -273,18 +252,25 @@ def aggregate(runs: List[str], dimensions: List[str], workspace: Path,
     return out
 
 
+# ----------------------------- CLI -----------------------------
+
+
 def main(argv=None):
-    p = argparse.ArgumentParser(description="跨 run 聚合分析 (按调研维度合并多 run enriched.jsonl)")
+    p = argparse.ArgumentParser(description="跨 run 聚合分析 (维度由 agent 通过 --dimensions 定义)")
     p.add_argument("--runs", required=True,
                    help="逗号分隔的 run slug, 多个关键词的 --topic 值")
-    p.add_argument("--dimensions", default="hc,interview,company",
-                   help="逗号分隔的调研维度, 默认 hc / interview / company")
-    p.add_argument("--custom-dimensions", default="",
-                   help="自定义维度, 格式: name:kw1,kw2;name2:kw3,kw4 (与 --dimensions 累加)")
+    p.add_argument("--dimensions", required=True,
+                   help="自由定义的维度, 格式: 'name:kw1,kw2;name2:kw3,kw4'")
     p.add_argument("--workspace", default="data/runs",
                    help="workspace 根目录 (默认 data/runs)")
     p.add_argument("--output", default=None,
                    help="输出 JSON 路径, 默认 <workspace>/_cross_analyze.json")
+    p.add_argument("--top-notes", type=int, default=10,
+                   help="每个维度输出 Top N 笔记 (默认 10)")
+    p.add_argument("--top-comments", type=int, default=10,
+                   help="每个维度输出 Top N 评论 (默认 10)")
+    p.add_argument("--full-notes", type=int, default=5,
+                   help="每个维度输出带完整正文的笔记数 (默认 5)")
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(argv)
 
@@ -294,37 +280,28 @@ def main(argv=None):
     log = logging.getLogger(LOG_NAME)
 
     runs = [s.strip() for s in args.runs.split(",") if s.strip()]
-    dimensions = [s.strip() for s in args.dimensions.split(",") if s.strip()]
+    if not runs:
+        print("参数错误: --runs 为空", file=sys.stderr)
+        return 3
+    try:
+        dimensions = parse_dimensions(args.dimensions)
+    except ValueError as exc:
+        print(f"参数错误: {exc}", file=sys.stderr)
+        return 3
+
     workspace = Path(args.workspace).resolve()
     output = Path(args.output) if args.output else workspace / "_cross_analyze.json"
 
-    # 解析自定义维度
-    custom_dims: Dict[str, Set[str]] = {}
-    if args.custom_dimensions:
-        for chunk in args.custom_dimensions.split(";"):
-            chunk = chunk.strip()
-            if not chunk:
-                continue
-            if ":" not in chunk:
-                print(f"WARN: --custom-dimensions 段 '{chunk}' 缺冒号, 跳过", file=sys.stderr)
-                continue
-            name, kws = chunk.split(":", 1)
-            name = name.strip()
-            kw_set = {k.strip() for k in kws.split(",") if k.strip()}
-            if name and kw_set:
-                custom_dims[name] = kw_set
-                if name not in dimensions:
-                    dimensions.append(name)
-
-    log.info("聚合 %d run × %d 维度 (%d 自定义) -> %s",
-            len(runs), len(dimensions), len(custom_dims), output)
+    log.info("聚合 %d run × %d 维度 -> %s", len(runs), len(dimensions), output)
     for r in runs:
         log.info("  run: %s", r)
     for d in dimensions:
-        tag = " (custom)" if d in custom_dims else ""
-        log.info("  dimension: %s%s", d, tag)
+        log.info("  dimension: %s (%d 关键词)", d, len(dimensions[d]))
 
-    result = aggregate(runs, dimensions, workspace, custom_dims=custom_dims)
+    result = aggregate(runs, dimensions, workspace,
+                       top_notes=args.top_notes,
+                       top_comments=args.top_comments,
+                       full_notes=args.full_notes)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     log.info("写入 %s", output)
@@ -347,7 +324,7 @@ def main(argv=None):
     print(f"\n  total notes: {result['totals']['notes_total']}")
     print(f"  total comments: {result['totals']['comments_total']}")
     if thin_dims:
-        print(f"\n  WARN: 维度 {thin_dims} 命中稀薄 (0 笔记). 建议补跑关键词或加 --custom-dimensions.",
+        print(f"\n  WARN: 维度 {thin_dims} 命中稀薄 (0 笔记). 建议补跑关键词或调整该维度的关键词集.",
               file=sys.stderr)
         return 2  # 退出码 2 = 数据稀薄, 但流程成功
     return 0

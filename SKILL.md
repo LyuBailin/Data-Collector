@@ -1,6 +1,6 @@
 ---
 name: xiaohongshu-harvester
-description: 小红书公开/半公开内容采集与本地化分析 skill。能力：关键词搜索笔记、单篇笔记详情 + 评论、用户主页笔记、热门榜、用户搜索，以及 collect→clean→enrich→analyze 全链路，输出洞察式 Markdown 报告 + CSV 明细。适用：用户要求抓取/分析/导出小红书笔记、评论、用户、热门榜数据时使用。前提：用户提供本人账号的登录 cookie。约束：不绕过登录态、不并发不高频、拒绝绕过签名风控或未授权数据的抓取。调用约定：agent 调用 skill 前先与用户讨论主题方向与调研维度，再基于维度生成多组关键词并行采集；skill 不预设任何总结模板，由 agent 基于 desc_plain/评论与用户关心的具体问题生成针对性总结报告，每条结论标注 note_id 与来源 run。
+description: 小红书公开/半公开内容采集与本地化分析 skill。能力：关键词搜索笔记、单篇笔记详情 + 评论、用户主页笔记、热门榜、用户搜索，以及 collect→clean→enrich→analyze 全链路，输出洞察式 Markdown 报告 + CSV 明细。适用：用户要求抓取/分析/导出小红书笔记、评论、用户、热门榜数据时使用。前提：用户提供本人账号的登录 cookie。约束：不绕过登录态、不并发不高频、拒绝绕过签名风控或未授权数据的抓取。调用约定：agent 调用 skill 前先与用户讨论主题方向与调研维度；**调研维度不预设、不内置，由 agent 与用户讨论自由设计（每个维度配 3-8 个该社区实际使用的关键词）**；再基于维度生成多组关键词并行采集；skill 不预设任何总结模板，由 agent 基于 desc_plain/评论与用户关心的具体问题生成针对性总结报告，每条结论标注 note_id 与来源 run。
 ---
 
 # 小红书采集分析 skill — Agent 操作手册
@@ -32,17 +32,28 @@ description: 小红书公开/半公开内容采集与本地化分析 skill。能
 
 把用户回答提炼成**一句话主题**, 作为下一步维度设计的天花板。
 
-### Step 2 — 与用户讨论调研维度
+### Step 2 — 与用户讨论调研维度 (维度由 agent 自由设计, 不硬编码)
 
-主题确认后, agent 提出 3–5 个**调研维度**让用户选 (多选)。维度是这个主题下用户想看的角度, 例如:
+主题确认后, agent 提出 3–5 个**调研维度**让用户选 (多选)。维度是这个主题下用户想看的角度。
 
-| 主题 | 候选维度 |
+**维度没有预设清单, 由 agent 根据主题与用户讨论自由设计。** 下面是设计规则与示例, 不是内置维度:
+
+**维度设计规则**:
+1. **每个维度 = 一个用户关心的角度** (如"品牌推荐" / "避雷" / "搭配技巧"), 维度之间要可区分, 不要互相重叠
+2. **每个维度需要 3–8 个关键词**, 关键词必须是**该内容社区实际使用的词** (护肤圈说"烂脸"不说"事故"; 穿搭圈说"版型"不说"款式参数") —— 关键词质量直接决定命中质量
+3. **维度名用短 ASCII 标识** (如 `fit` / `brand` / `hc`), 它是 cross_analyze 输出 JSON 的章节键
+4. 维度设计完要**给用户看并确认**, 用户有增删改的自由
+
+**示例 (仅示意, 不要照搬)**:
+
+| 主题 | agent 可设计的维度示例 |
 | --- | --- |
-| 秋招 / 校招 | hc 缩减 / 面试机会 · 面试经验 / 准备策略 · 心理状况 · offer 谈判 / 毁约 · 公司 / 行业口碑 |
-| 露营 | 装备选购 · 新手踩雷 · 安全 · 营地推荐 · 季节 / 天气 |
-| 护肤品 | 功效 (美白 / 抗老) · 肤质适配 · 性价比 · 真实用户反馈 · 避雷 |
+| 秋招 / 校招 | `hc:缩招,秋招,校招,暑期转正,泡池子,排序` · `interview:面经,面试,一面,反问,上岸` · `company:大厂,字节,阿里,996,裁员,wlb` |
+| 露营 | `gear:装备,帐篷,天幕,营地车,卡式炉` · `rookie:新手,踩雷,避雷,漏带` · `safety:危险,隐患,起火,爆炸` |
+| 护肤品 | `disaster:烂脸,过敏,红痒,爆痘,激素脸` · `brand:品牌,平价,替代,店铺` · `ingredient:成分,致痘,致敏,敏感肌` |
+| 183 胖穿搭 | `fit:穿搭,搭配,显瘦,显高,遮肚,版型` · `brand:大码,微胖,胖男生,品牌,店铺` |
 
-每个维度对应一个**关键词组** (1–3 个关键词)。维度和关键词是 1:N 关系, 不是 1:1。
+> 关键: 每次调研的维度/关键词都由 agent 当场设计, 不存在"skill 内置了哪些维度"的说法。如果某个维度的关键词是 agent 硬凑的 (比如给护肤话题填"起火/爆炸"), 命中必然为 0, 这是设计错误不是数据问题。
 
 ### Step 3 — 生成关键词组合, 让用户确认
 
@@ -50,11 +61,11 @@ description: 小红书公开/半公开内容采集与本地化分析 skill。能
 
 ```
 主题: 秋招 / 校招
-已选维度: hc 缩减 · 面试经验 · 公司口碑
+已选维度: hc · interview · company
 建议关键词组 (每个标注对应维度):
-  [→hc 缩减]    hc 缩减, 27 届秋招, 互联网 hc
-  [→面试经验]   面试经验, 秋招面试, 大厂面经
-  [→公司口碑]   大厂避雷, 大厂工种, 互联网 996
+  [→hc]        hc 缩减, 27 届秋招, 互联网 hc
+  [→interview] 面试经验, 秋招面试, 大厂面经
+  [→company]   大厂避雷, 大厂工种, 互联网 996
 请勾选要跑的组 (默认全跑):
 ```
 
@@ -70,23 +81,21 @@ description: 小红书公开/半公开内容采集与本地化分析 skill。能
 
 单 run 报告 (§5 输出物) 只覆盖单个关键词, **不能用单 run 报告给用户做总结**。
 
-调用 `scripts/cross_analyze.py --runs <slug1>,<slug2>,... --dimensions <dim1>,<dim2>,... --workspace data/runs` 生成聚合 JSON。agent 读聚合 JSON + 各个 `enriched.jsonl`, 基于用户关心的具体问题, 标注 `note_id` 与来源 run, 生成针对性报告。
+调用 `scripts/cross_analyze.py --runs <slug1>,<slug2>,... --dimensions "<name>:<kw1>,<kw2>;<name2>:<kw3>,<kw4>" --workspace data/runs` 生成聚合 JSON。`--dimensions` 传 Step 2 设计的**完整维度定义** (维度名 + 关键词集), 脚本**没有任何内置维度**, 你传什么它就聚合什么。agent 读聚合 JSON + 各个 `enriched.jsonl`, 基于用户关心的具体问题, 标注 `note_id` 与来源 run, 生成针对性报告。
 
-聚合脚本内置维度关键词集 (`hc` / `interview` / `company` / `lifestyle` / `consumer` / `safety`), 仅做命中筛选, 不做语义聚类; 真实"按维度整理"由 agent 完成。
-
-**稀薄维度处理**: 如果某个维度命中笔记数 = 0 (例如 `safety` 维度原本只覆盖"硬件事故"关键词, 对护肤品语境"烂脸/过敏"不适用), cross_analyze.py 会以**退出码 2** + stderr `WARN: 维度 X 命中稀薄` 告警。Agent 必须:
-1. 决定是用 `--custom-dimensions` 加临时关键词集 (例如 `safety:烂脸,过敏,红痒,爆痘`), 还是
-2. 把该维度从报告里去掉, 并向用户明示"该维度在本次样本里无命中"
-3. 不要为了让维度"看起来有内容"就强行归纳
-
-**自定义维度示例**:
+**新 CLI 示例** (每个维度完整定义, 无内置维度, 无 --custom-dimensions):
 ```bash
 python scripts/cross_analyze.py \
-    --runs lanlian,guomin,bilei \
-    --dimensions safety,consumer \
-    --custom-dimensions "safety:烂脸,过敏,红痒,爆痘;consumer:平价替代,小众品牌" \
+    --runs pants183,daman,pangnansheng,damanpinpai \
+    --dimensions "fit:穿搭,搭配,显瘦,显高,遮肚,版型;brand:大码,微胖,胖男生,品牌,店铺,推荐" \
     --workspace data/runs
 ```
+可选调参: `--top-notes N` (默认 10) / `--top-comments N` (默认 10) / `--full-notes N` (默认 5) / `--output <path>` (默认 `<workspace>/_cross_analyze.json`)。
+
+**稀薄维度处理**: 如果某个维度命中笔记数 = 0 (通常是维度关键词设计错误, 例如给护肤话题填"起火/爆炸"), cross_analyze.py 会以**退出码 2** + stderr `WARN: 维度 X 命中稀薄` 告警。Agent 必须:
+1. 调整该维度的关键词集 (换成该社区实际使用的词) 后重跑, 或
+2. 把该维度从报告里去掉, 并向用户明示"该维度在本次样本里无命中"
+3. 不要为了让维度"看起来有内容"就强行归纳
 
 **报告落盘 (可选)**: agent 把写好的针对性总结保存为 `<workspace>/<date>_<topic>_report.md` (或类似的语义化名字), 这样用户后续能直接打开查看历史调研。**不要覆盖**单 run 自己的 `report.md`。
 
@@ -198,8 +207,8 @@ python scripts/analyze.py --in data/enriched/x.jsonl --report x.report.md --summ
 | 用户主页只有少量笔记 | SSR 首屏 + 滚动加载, 或该用户笔记少 | `--pages` 触发滚动; 数据量本身受页面限制 |
 | `--hotlist` 报错 / 空数据 | 热门榜页面驱动触发风控或路径变更 | 等几分钟降频重试; 持续失败再排查页面路径 |
 | 多关键词跑时被中断 | 第 N 个关键词触发风控 | 后续关键词的 run folder 会自动加 `_1` `_2` 后缀, 不影响 |
-| `cross_analyze.py` 报 "unknown dimension" | 维度名不在内置关键词集 | 检查 `--dimensions` 参数, 或扩展 `scripts/cross_analyze.py::DIM_KEYWORDS` |
-| `cross_analyze.py` 退出码 2 + `WARN: 维度 X 命中稀薄` | 该维度在本次样本里 0 笔记命中 | 用 `--custom-dimensions` 加临时关键词集, 或从报告里去掉该维度并明示用户 |
+| `cross_analyze.py` 参数解析失败 (exit 3) | `--dimensions` 格式不对 (缺冒号 / 空关键词 / 维度名重复) | 按报错信息修正 `name:kw1,kw2;name2:kw3,kw4` 格式 |
+| `cross_analyze.py` 退出码 2 + `WARN: 维度 X 命中稀薄` | 该维度在本次样本里 0 笔记命中 (通常是关键词设计错误, 词不贴社区) | 换成该社区实际使用的关键词重跑, 或从报告里去掉该维度并明示用户 |
 
 ## 8. Agent 后续处理契约 (基于 desc_plain / content 写报告)
 
@@ -248,10 +257,14 @@ python scripts/xhs_client.py whoami
 python scripts/xhs_client.py init-cookie
 
 # 多关键词调研 (§2 推荐路径)
-python scripts/pipeline.py --keyword "hc 缩减" --pages 1 --enrich-notes 5 --with-comments --workspace data/runs --topic hcsuojian
-python scripts/pipeline.py --keyword "面试经验" --pages 1 --enrich-notes 5 --with-comments --workspace data/runs --topic mianshi
-python scripts/pipeline.py --keyword "大厂避雷" --pages 1 --enrich-notes 5 --with-comments --workspace data/runs --topic dachangbilei
-python scripts/cross_analyze.py --runs hcsuojian,mianshi,dachangbilei --dimensions hc,interview,company --workspace data/runs
+python scripts/pipeline.py --keyword "183 胖穿搭" --pages 1 --enrich-notes 5 --with-comments --workspace data/runs --topic pants183
+python scripts/pipeline.py --keyword "大码男装" --pages 1 --enrich-notes 5 --with-comments --workspace data/runs --topic daman
+python scripts/pipeline.py --keyword "胖男生穿搭" --pages 1 --enrich-notes 5 --with-comments --workspace data/runs --topic pangnansheng
+# 跨 run 聚合: 维度由 agent 设计, 无内置维度
+python scripts/cross_analyze.py \
+    --runs pants183,daman,pangnansheng \
+    --dimensions "fit:穿搭,搭配,显瘦,显高,遮肚,版型;brand:大码,微胖,胖男生,品牌,店铺" \
+    --workspace data/runs
 
 # 单关键词 (用户明确指定了某个词)
 python scripts/pipeline.py --keyword "hc 缩减" --pages 3 --enrich-notes 10 --with-comments --workspace data/runs
