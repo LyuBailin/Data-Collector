@@ -26,6 +26,20 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Set
 
+# 强制 stdout/stderr 用 UTF-8, 避免 Windows PowerShell (GBK) 环境下
+# 标题含 emoji / CJK 扩展字符时 UnicodeEncodeError 崩溃.
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+elif sys.platform == "win32":
+    import io
+    if isinstance(sys.stdout, io.TextIOBase):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
@@ -64,9 +78,14 @@ DIM_KEYWORDS: Dict[str, Set[str]] = {
         "避雷", "吐槽", "毁约", "压价", "低薪",
     },
     "lifestyle": {
-        # 露营 / 旅游 / 户外 / 美食 等生活类话题
+        # 露营 / 旅游 / 户外
         "露营", "帐篷", "天幕", "营地", "烧烤", "野餐", "徒步",
         "装备", "新手", "出行", "周边游", "户外",
+        # 穿搭 / 服饰 / 体型
+        "穿搭", "搭配", "显瘦", "显高", "遮肚", "版型", "上身效果",
+        "大码", "微胖", "胖男生", "梨形", "苹果型", "高个子",
+        "男生穿搭", "女装", "ootd", "日常穿搭", "通勤穿搭",
+        "男装", "女生穿搭", "体型",
     },
     "consumer": {
         # 消费品 / 数码 / 护肤 / 家居 等
@@ -323,7 +342,8 @@ def main(argv=None):
         print(line)
         for n in data["top_notes_by_liked"][:3]:
             mark = "[正文]" if n["has_body"] else "[标题]"
-            print(f"    {mark} [{n['run']}/{n['note_id'][:8]}] {n['title'][:50]} (赞 {n['liked']})")
+            title = (n.get("title") or "").strip() or "(无标题)"
+            print(f"    {mark} [{n['run']}/{n['note_id'][:8]}] {title[:50]} (赞 {n['liked']})")
     print(f"\n  total notes: {result['totals']['notes_total']}")
     print(f"  total comments: {result['totals']['comments_total']}")
     if thin_dims:
