@@ -14,6 +14,7 @@ import argparse
 import json
 import logging
 import math
+import re
 import statistics
 import sys
 from collections import Counter
@@ -89,6 +90,7 @@ def aggregate(records):
     comments = [r for r in records if r.get("is_comment")]
     hotlist = [r for r in records if r.get("is_hotlist")]
     users_search = [r for r in records if r.get("is_user")]
+    notes_by_id = {n.get("note_id"): n for n in notes if n.get("note_id")}
 
     # ---- 用户维度 (笔记 + 评论都聚合) ----
     users = {}
@@ -263,6 +265,51 @@ def aggregate(records):
 
     liked_values = [int(c.get("liked") or 0) for c in comments]
 
+    # ---- 颗粒度增强: 剔除广告 + 疑问 / 长尾 ----
+    # 顶部真实讨论: 顶层评论, ad_like_score < 0.2, content 长度 >= 8, 按 "赞数 × (1 - ad_like) + 长度权重" 排序
+    _QUESTION_RE = re.compile(r"[?？]|\b怎么\b|\b吗[?？]?$|\b哪[几里]?\b|\b什么\b")
+    top_level = [c for c in comments if c.get("endpoint") == "comment/page"]
+
+    def _content(c):
+        return (c.get("content") or "").strip()
+
+    def _is_ad(c):
+        return float(c.get("ad_like_score") or 0) >= 0.2
+
+    # 1. 真实讨论 Top 10: 剔除广告嫌疑 + 内容非空
+    real_discussion = [c for c in top_level if not _is_ad(c) and len(_content(c)) >= 8]
+    real_discussion = sorted(
+        real_discussion,
+        key=lambda c: int(c.get("liked") or 0) * 2 + len(_content(c)),
+        reverse=True,
+    )[:10]
+
+    # 2. 疑问型评论 Top 5: 含问号/疑问词
+    question_comments = [c for c in top_level if _QUESTION_RE.search(_content(c))]
+    question_comments = sorted(
+        question_comments,
+        key=lambda c: int(c.get("liked") or 0) + (5 if len(_content(c)) >= 15 else 0),
+        reverse=True,
+    )[:5]
+
+    # 3. 长尾评论 Top 10: 内容长度 > 30 且赞数 <= 2 (被忽略但有内容的真实反馈)
+    longtail = [
+        c for c in top_level
+        if int(c.get("liked") or 0) <= 2 and len(_content(c)) > 30 and not _is_ad(c)
+    ]
+    longtail = sorted(longtail, key=lambda c: len(_content(c)), reverse=True)[:10]
+
+    # 4. 疑问最多的笔记: 统计每条笔记收到的疑问型评论数
+    questions_per_note = Counter()
+    for c in top_level:
+        if _QUESTION_RE.search(_content(c)):
+            questions_per_note[c.get("note_id")] += 1
+    top_question_notes = [
+        {"note_id": nid, "title": notes_by_id.get(nid, {}).get("title", ""), "questions": cnt}
+        for nid, cnt in questions_per_note.most_common(5)
+        if cnt > 0
+    ]
+
     summary = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "total": len(records),
@@ -360,6 +407,42 @@ def aggregate(records):
             }
             for c in top_comments
         ],
+        # 颗粒度增强: 剔除广告后的真实讨论 + 疑问 + 长尾
+        "real_discussion": [
+            {
+                "comment_id": c.get("comment_id"),
+                "note_id": c.get("note_id"),
+                "user": (c.get("user") or {}).get("nickname"),
+                "content": c.get("content") or "",
+                "liked": c.get("liked"),
+                "sentiment": c.get("sentiment"),
+                "keywords": c.get("keywords") or [],
+                "ts_iso": c.get("ts_iso"),
+            }
+            for c in real_discussion
+        ],
+        "question_comments": [
+            {
+                "comment_id": c.get("comment_id"),
+                "note_id": c.get("note_id"),
+                "user": (c.get("user") or {}).get("nickname"),
+                "content": c.get("content") or "",
+                "liked": c.get("liked"),
+            }
+            for c in question_comments
+        ],
+        "longtail_comments": [
+            {
+                "comment_id": c.get("comment_id"),
+                "note_id": c.get("note_id"),
+                "user": (c.get("user") or {}).get("nickname"),
+                "content": c.get("content") or "",
+                "liked": c.get("liked"),
+                "ip_location": c.get("ip_location"),
+            }
+            for c in longtail
+        ],
+        "top_question_notes": top_question_notes,
         "top_commenters": [
             {
                 "user_id": u["user_id"],
@@ -647,7 +730,18 @@ def render_markdown(summary, source):
             lines.append(
                 f"{i}. **{title}**{mark} — @{user} · 赞 {n.get('liked')} · heat {n.get('heat_score')}"
             )
-            if n.get("summary"):
+            # 完整正文 (替代 140 字截断的 summary)
+            desc = (n.get("desc_plain") or "").strip()
+            if desc:
+                # 长正文按段落切分, 每段独立缩进引用块
+                paras = [p.strip() for p in re.split(r"\n{2,}", desc) if p.strip()]
+                for p in paras:
+                    # 单段超长时也截断, 避免 report.md 单条过大
+                    if len(p) > 800:
+                        p = p[:800].rstrip() + "…"
+                    lines.append(f"   > {p}")
+            elif n.get("summary"):
+                # 没补全正文时退化到 summary
                 lines.append(f"   > {n['summary']}")
             if n.get("topics"):
                 lines.append(f"   话题: {', '.join(n['topics'])} · 情感 {n.get('sentiment')}")
@@ -693,8 +787,55 @@ def render_markdown(summary, source):
             for i, item in enumerate(summary["comment_top_keywords"][:15], 1):
                 lines.append(f"| {i} | {item['word']} | {item['freq']} |")
             lines.append("")
+
+        # 10.1 真实讨论 (剔除广告嫌疑, 按 赞数 + 长度 排序)
+        if summary.get("real_discussion"):
+            lines.append("**10.1 真实讨论 Top 10** (剔除 ad_like_score ≥ 0.2 的广告嫌疑, 按赞数×2 + 长度加权)")
+            lines.append("")
+            for i, c in enumerate(summary["real_discussion"], 1):
+                content = (c.get("content") or "").replace("\n", " ").strip()
+                # 长评论显示完整内容, 便于直接阅读
+                if len(content) > 300:
+                    content = content[:300].rstrip() + "…"
+                lines.append(
+                    f"{i}. [{c.get('liked', 0)}赞] [{c.get('sentiment') or '?'}] @{c.get('user') or '?'}: {content}"
+                )
+            lines.append("")
+
+        # 10.2 疑问型评论
+        if summary.get("question_comments"):
+            lines.append("**10.2 疑问型评论 Top 5** (含问号/怎么/哪/吗 等)")
+            lines.append("")
+            for i, c in enumerate(summary["question_comments"], 1):
+                content = (c.get("content") or "").replace("\n", " ").strip()
+                lines.append(f"{i}. @{c.get('user') or '?'}: {content}")
+            lines.append("")
+
+        # 10.3 长尾评论 (被忽略但有内容)
+        if summary.get("longtail_comments"):
+            lines.append("**10.3 长尾评论 Top 10** (内容 > 30 字 且 赞数 ≤ 2, 真实反馈但被赞数埋没)")
+            lines.append("")
+            for i, c in enumerate(summary["longtail_comments"], 1):
+                content = (c.get("content") or "").replace("\n", " ").strip()
+                if len(content) > 300:
+                    content = content[:300].rstrip() + "…"
+                loc = f" · {c['ip_location']}" if c.get("ip_location") else ""
+                lines.append(f"{i}. @{c.get('user') or '?'}{loc}: {content}")
+            lines.append("")
+
+        # 10.4 疑问最多的笔记
+        if summary.get("top_question_notes"):
+            lines.append("**10.4 疑问最多的笔记 Top 5**")
+            lines.append("")
+            lines.append("| 笔记 | 疑问评论数 |")
+            lines.append("| --- | --- |")
+            for q in summary["top_question_notes"]:
+                lines.append(f"| {q['title'] or '(无标题)'} ({q['note_id']}) | {q['questions']} |")
+            lines.append("")
+
+        # 10.5 高赞评论 (旧行为, 保留兼容)
         if summary["top_comments"]:
-            lines.append("**评论 Top 10 高赞**")
+            lines.append("**10.5 评论 Top 10 高赞** (含广告嫌疑, 仅作原始排序参考)")
             lines.append("")
             for i, c in enumerate(summary["top_comments"], 1):
                 user = c.get("user") or "?"
