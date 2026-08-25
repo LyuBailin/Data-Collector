@@ -98,12 +98,12 @@ class ParseDimensionsFailLoud(unittest.TestCase):
     def test_empty_keywords_rejected(self):
         with self.assertRaises(ValueError) as ctx:
             parse_dimensions("fit:")
-        self.assertIn("关键词为空", str(ctx.exception))
+        self.assertIn("slug 为空", str(ctx.exception))
 
     def test_empty_keywords_all_blank_rejected(self):
         with self.assertRaises(ValueError) as ctx:
             parse_dimensions("fit: , , ")
-        self.assertIn("关键词为空", str(ctx.exception))
+        self.assertIn("slug 为空", str(ctx.exception))
 
     def test_duplicate_dimension_name_rejected(self):
         with self.assertRaises(ValueError) as ctx:
@@ -242,6 +242,113 @@ class RunFolderSelectionContract(unittest.TestCase):
             any("无匹配 run folder" in m for m in captured),
             f"应有 '无匹配' WARNING, 实得: {captured}",
         )
+
+
+class SlugBasedDimMatching(unittest.TestCase):
+    """dim 命中按 slug 划分, 不再按 title/desc 文本匹配.
+
+    为什么这个测试存在:
+      commit 5d33c40 后的实测发现旧 text 匹配在 XHS 模糊搜索下 99%
+      0 命中 (搜 'AI神器' 返回的笔记 0/20 含 'AI神器' 三字). 改造为
+      slug-based 划分后, agent 在 Step 2 给的关键词 (--keywords) = 
+      pipeline run 的 slug = cross_analyze dim 命中的范围. 测试锁住
+      此行为防止回退.
+
+    测试用 in-memory records (注入 _source_slug), 不依赖真实 XHS 数据.
+    """
+
+    def setUp(self):
+        from cross_analyze import _notes_by_dim, _comments_by_dim
+        self._notes_by_dim = _notes_by_dim
+        self._comments_by_dim = _comments_by_dim
+
+    def _note(self, source_slug, note_id="n1", title="", desc=""):
+        return {
+            "_source_slug": source_slug,
+            "note_id": note_id,
+            "title": title,
+            "desc_plain": desc,
+            "tags": [],
+            "interact": {"liked": 100, "comment": 10},
+            "detail_enriched": True,
+            "user": {"nickname": "u"},
+            "ts_iso": "2026-08-25T00:00:00+00:00",
+            "share_url": "",
+            "is_comment": False,
+        }
+
+    def _comment(self, source_slug, note_id="n1", comment_id="c1", content=""):
+        return {
+            "_source_slug": source_slug,
+            "note_id": note_id,
+            "comment_id": comment_id,
+            "content": content,
+            "liked": 5,
+            "user": {"nickname": "u"},
+            "is_sub_comment": False,
+            "ts_iso": "2026-08-25T00:00:00+00:00",
+            "ip_location": "",
+            "is_comment": True,
+        }
+
+    def test_notes_in_dim_slug_matched(self):
+        """_source_slug 在 dim_slugs 的笔记必须命中, 不管 title/desc 内容."""
+        # 关键: title/desc 不含 'AI神器', 但 slug 是 'ai神器' — 命中
+        records = [
+            self._note("ai神器", note_id="n1", title="打脸了!你敢信这是 Codex 做出来的?"),
+        ]
+        out = self._notes_by_dim(records, {"ai神器", "ai工具推荐"})
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["note_id"], "n1")
+
+    def test_notes_not_in_dim_slug_excluded(self):
+        """_source_slug 不在 dim_slugs 的笔记必须排除."""
+        records = [
+            self._note("ai焦虑", note_id="n1"),
+            self._note("ai学习路径", note_id="n2"),
+        ]
+        out = self._notes_by_dim(records, {"ai神器"})
+        self.assertEqual(out, [])
+
+    def test_xhs_search_reality(self):
+        """模拟 §2 实测场景: tools dim 含 2 slug, 40 条笔记全命中."""
+        tools_notes = [self._note("ai神器", note_id=f"n{i}") for i in range(20)]
+        tools_notes += [self._note("ai工具推荐", note_id=f"m{i}") for i in range(20)]
+        learn_notes = [self._note("ai入门", note_id=f"l{i}") for i in range(20)]
+        learn_notes += [self._note("ai学习路径", note_id=f"k{i}") for i in range(20)]
+        all_records = tools_notes + learn_notes
+        # tools 维度命中
+        tools_out = self._notes_by_dim(all_records, {"ai神器", "ai工具推荐"})
+        self.assertEqual(len(tools_out), 40)
+        # learn 维度命中 (互不交叉)
+        learn_out = self._notes_by_dim(all_records, {"ai入门", "ai学习路径"})
+        self.assertEqual(len(learn_out), 40)
+
+    def test_case_sensitivity(self):
+        """slug 必须字面一致 — 大小写敏感.
+
+        之前 _slugify 内部 .lower() 把 'AI神器' 转成 'ai神器', 与
+        --runs 'AI神器' 大写不匹配. 现在保留大小写, slug = keyword 字面.
+        """
+        records = [self._note("AI神器", note_id="n1")]  # 大写 slug
+        # 大写 slug 命中 dim {'AI神器'}
+        out_match = self._notes_by_dim(records, {"AI神器"})
+        self.assertEqual(len(out_match), 1)
+        # 小写 slug 不命中 dim {'AI神器'} (case-sensitive)
+        records2 = [self._note("ai神器", note_id="n2")]
+        out_miss = self._notes_by_dim(records2, {"AI神器"})
+        self.assertEqual(out_miss, [])
+
+    def test_comments_also_slug_based(self):
+        """评论也是按 slug 划分, 不按内容关键词."""
+        records = [
+            self._comment("ai焦虑", note_id="n1", comment_id="c1", content="完全无关的内容"),
+        ]
+        out = self._comments_by_dim(records, {"ai焦虑"})
+        self.assertEqual(len(out), 1)
+        # 不同 slug 不命中
+        out2 = self._comments_by_dim(records, {"ai取代"})
+        self.assertEqual(out2, [])
 
 
 if __name__ == "__main__":

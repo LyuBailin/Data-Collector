@@ -17,10 +17,11 @@ description: 小红书内容采集 + 本地分析。用户提供本人 cookie �
    同一进程串行, 复用 Chromium/cookie 单例 (cookie 是敏感文件, .gitignore 已排除)。输出 N 个 `data/runs/<日期>_<topic>/`, 每文件夹 7 个文件。
 4. **跨 run 聚合**:
    ```bash
-   python scripts/cross_analyze.py --runs "kw1,kw2,kw3" \
-       --dimensions "name:kw1,kw2;name2:kw3,kw4" --workspace data/runs
+   python scripts/cross_analyze.py --runs "AI神器,AI工具推荐,AI入门" \
+       --dimensions "tools:AI神器,AI工具推荐;learn:AI入门" --workspace data/runs
    ```
-   生成 `_cross_analyze.json`, 按维度聚合笔记 + 评论。无内置维度, 你传什么它聚合什么。
+   `--dimensions` 是 **slug 划分** 不是文本匹配 — 每个 dim 的值是 `--runs` 里的一组 slug, 这些 slug run 里的所有笔记归到该 dim。**为什么不是文本匹配**: XHS 模糊搜索下, 搜"AI神器"返回的笔记 99% 不含"AI神器"三个字, 按 title/desc 文本匹配会大量 0 命中 (实测验证)。slug 划分与 XHS 实际返回一致。
+   **ASCII 大小写敏感**: `--runs` / `--dimensions` / `_slugify` 现在保留 ASCII 大小写 (2026-08-25 改造), `--keywords 'AI神器'` 生成的 folder 是 `2026-08-25_AI神器`, 三处 CLI 参数用同一字符串。生成 `_cross_analyze.json`。
 5. **写报告** — 读聚合 JSON + 各 `enriched.jsonl`, 基于 `desc_plain` / 评论原文回答用户问题, 落盘为 `<workspace>/<date>_<topic>_report.md`。
 
 ## 必做检查
@@ -55,7 +56,7 @@ python scripts/pipeline.py --search-user "X" --pages 1 --workspace data/runs    
 | "页面渲染了登录墙, cookie 可能已过期" | 立即停, 让用户重导 cookie (不是风控, 不要等 90s 重试) |
 | `-102` / 连续空数据 | 等 90s 重试, 仍失败跳过该关键词 |
 | `cross_analyze.py exit 3` | `--dimensions` 格式错, 按 `name:kw1,kw2;name2:kw3,kw4` 修正 |
-| `cross_analyze.py exit 2` + `WARN: 维度 X 命中稀薄` | 通常是关键词设计错误, 换该社区实际用的词, 或从报告去掉该维度并明示 |
+| `cross_analyze.py exit 2` + `WARN: 维度 X 命中稀薄` | dim 的 slug 在 `--runs` 里没对应 run folder (slug 拼写错, 或对应 pipeline 没跑过). 注意 dim 是按 slug 划分不是文本匹配 — 不是关键词质量问题 |
 | `WARN: slug 'X' 无匹配 run folder` | `--runs` 拼写错, 或对应 pipeline 没跑过 |
 
 ## 红线

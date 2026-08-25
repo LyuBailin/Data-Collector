@@ -57,13 +57,22 @@ LOG = logging.getLogger("pipeline")
 
 
 def _slugify(s):
-    """简单 slug 化: 把任意字符串转成 [a-z0-9_]"""
+    """slug 化: 把任意字符串转成 [A-Za-z0-9_], 保留 ASCII 大小写.
+
+    历史: 之前用 .lower() 把 ASCII 转小写, 但导致 --keywords 'AI神器' 生成的
+    folder 名 (2026-08-25_ai神器) 与 --runs 'AI神器' 拼写不一致, 跨 run
+    聚合时匹配失败. 现在保留原大小写, 让 --keywords / --runs / --dimensions
+    的 slug 字面一致 (XHS 模糊搜索场景下 'AI神器' 与 'ai神器' 实际命中笔记
+    可能不同, 但保证三个 CLI 参数用同一字符串时一致匹配).
+
+    中文 isalnum() 返回 True 但没有大小写概念, 自动保留.
+    """
     if not s:
         return "default"
     out = []
     for ch in str(s):
         if ch.isalnum():
-            out.append(ch.lower())
+            out.append(ch)
         elif ch in ("-", "_"):
             out.append(ch)
         elif ch.isspace():
