@@ -204,6 +204,32 @@ async def do_request(method: str, url: str, headers: Dict[str, str], body: Any) 
 # 我们拦截页面自身的 API 响应", 与真实用户在浏览器里的行为完全一致。
 
 
+# 登录墙检测: XHS 在 cookie 失效时渲染"登录后查看搜索结果"页 + QR 码,
+# 而不是返回 -100/-101 这种结构化错误. 区分"登录失效" vs "风控"对
+# 用户的修复动作完全不同 (前者重新导出 cookie, 后者等几分钟重试).
+_LOGIN_WALL_MARKERS = (
+    "登录后查看", "扫码登录", "手机号登录", "请先登录", "未登录",
+    "登录后查看搜索结果",
+)
+
+
+async def _detect_login_wall(page) -> bool:
+    """检测页面是否渲染了登录墙.
+
+    返回 True 表示 cookie 可能已过期 (XHS 把搜索/笔记/用户主页等
+    当作需要主动扫码登录的页面). 实测 cookie 全字段齐全但 XHS 把
+    session 当作过期时, /user/me 头几次返回 code=-100/-101,
+    搜索页直接渲染登录墙, 根本不调 /v2/search/notes.
+    """
+    try:
+        title = await page.title()
+        body = await page.evaluate("document.body ? document.body.innerText : ''")
+    except Exception:
+        return False
+    text = (title or "") + "\n" + (body or "")[:2000]
+    return any(m in text for m in _LOGIN_WALL_MARKERS)
+
+
 async def page_search_notes(keyword: str, pages: int = 1, page_size: int = 20) -> List[Dict[str, Any]]:
     """页面驱动搜索: 打开搜索页, 捕获页面自身发出的 v2 search 响应。
 
@@ -251,6 +277,12 @@ async def page_search_notes(keyword: str, pages: int = 1, page_size: int = 20) -
             break
         await page.wait_for_timeout(500)
     if not captured:
+        if await _detect_login_wall(page):
+            raise RuntimeError(
+                f"搜索页未返回任何结果 (keyword={keyword}) —— 页面渲染了登录墙, "
+                f"cookie 可能已过期 (实测 /user/me 头几次返回 code=-100/-101), "
+                f"请重新导出 cookie (Chrome DevTools → Application → Cookies)"
+            )
         raise RuntimeError(f"搜索页未返回任何结果 (keyword={keyword}) —— 可能触发风控, 请稍后重试")
 
     # 滚动触发后续页加载
@@ -372,6 +404,11 @@ async def page_user_posted(user_id: str, pages: int = 1) -> List[Dict[str, Any]]
 
     _merge(await _read_notes())
     if not captured:
+        if await _detect_login_wall(page):
+            raise RuntimeError(
+                f"用户主页未返回笔记 (user_id={user_id}) —— 页面渲染了登录墙, "
+                f"cookie 可能已过期, 请重新导出 cookie"
+            )
         raise RuntimeError(f"用户主页未返回笔记 (user_id={user_id}) —— 可能触发风控或用户不存在, 请稍后再试")
 
     for _ in range(max(0, pages - 1)):
@@ -411,6 +448,10 @@ async def page_hotlist() -> List[Dict[str, Any]]:
             break
         await page.wait_for_timeout(500)
     if not captured:
+        if await _detect_login_wall(page):
+            raise RuntimeError(
+                "热门榜页未返回数据 —— 页面渲染了登录墙, cookie 可能已过期, 请重新导出 cookie"
+            )
         raise RuntimeError("热门榜页未返回数据 —— 可能触发风控或页面路径变更, 请稍后再试")
     LOG.info("page_hotlist: captured %d items", len(captured))
     return captured
