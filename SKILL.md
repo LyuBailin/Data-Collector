@@ -41,6 +41,8 @@ python scripts/pipeline.py --hotlist --category general --workspace data/runs   
 python scripts/pipeline.py --search-user "X" --pages 1 --workspace data/runs                        # 搜博主
 ```
 
+> `--keyword` 与 `--keywords "a,b,c"` 接收参数个数不同 (一 vs 多), 语义相同 (都是搜索关键词). 多关键词建议统一用 `--keywords` 串行跑, 单关键词沿用 `--keyword` 兼容旧命令; **不存在废弃关系**, agent 按场景选.
+
 ## 报告契约(必须遵守)
 
 - 每条结论至少 1 条 `note_id` 或 `comment_id` 证据

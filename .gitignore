@@ -4,9 +4,9 @@ __pycache__/
 *.pyo
 *.egg-info/
 
-# 数据 / 报告 (运行时产物) - 忽略, 仅 runs/sample/ (教学示例) 入 git
+# 数据 / 报告 (运行时产物) - 忽略, 仅 runs/2026-08-24_sample/ (教学示例) 入 git
 data/runs/*
-!data/runs/sample/
+!data/runs/2026-08-24_sample/
 
 # 指纹缓存 (含敏感信息)
 assets/fingerprint.json
