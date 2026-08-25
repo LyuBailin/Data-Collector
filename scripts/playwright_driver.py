@@ -120,7 +120,10 @@ async def ensure_browser() -> Page:
         LOG.info("injected %d cookies", len(cookies))
     page = await _browser_ctx.new_page()
     LOG.info("navigating to %s ...", DEFAULT_BASE_URL)
-    await page.goto(f"{DEFAULT_BASE_URL}/explore", wait_until="networkidle", timeout=60000)
+    # 用 domcontentloaded 而不是 networkidle: XHS 页面 analytics/websocket 常驻后台,
+    # networkidle 几乎不可能触发 (实测 10s+ 都不 fire), 改 domcontentloaded 后由下面
+    # wait_for_function("typeof window.mnsv2 === 'function'") 确认 SDK 就绪.
+    await page.goto(f"{DEFAULT_BASE_URL}/explore", wait_until="domcontentloaded", timeout=60000)
     # 等 SDK 加载
     try:
         await page.wait_for_function("typeof window.mnsv2 === 'function'", timeout=30000)
