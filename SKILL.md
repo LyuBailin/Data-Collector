@@ -129,6 +129,7 @@ python scripts/cross_analyze.py \
 2. **Cookie**: `assets/cookies.json` 必须存在且有效。
    - 先跑 `python scripts/xhs_client.py whoami` 确认 cookie **格式能解析**(只打印 cookie 摘要, 不打 XHS)
    - 再跑一次**最小真实请求**验证 cookie **真有效**: `python scripts/pipeline.py --keyword "本周热榜" --pages 1 --workspace data/runs/_cookie_test` (完成后 `rm -rf data/runs/_cookie_test`)
+   - 错误信息里如果出现 "**页面渲染了登录墙, cookie 可能已过期**" → **停止**, 请用户重新导出 cookie. 这是 `playwright_driver._detect_login_wall` 检测到的 (实测 cookie 字段齐全但 XHS 已把 session 当过期时, /user/me 返回 code=-100, 搜索页直接渲染登录墙, 根本不发 /v2/search/notes).
    - 失效信号 `-101` / HTTP 401/403 / `code:300011` → **停止**, 请用户重新导出 (Chrome DevTools → Application → Cookies → 导出)
    - cookie 是敏感文件 (`.gitignore` 已排除), **绝不写入 git / 聊天记录**
 3. **从用户消息解析参数**:
@@ -226,6 +227,7 @@ python scripts/analyze.py --in data/enriched/x.jsonl --report x.report.md --summ
 | `HTTP 406` / `Failed to fetch` | raw fetch 被网关拒 / 页面 fetch 包装偶发 | 走页面驱动路径; 降低频率, 等几分钟重试 |
 | `-101` / HTTP 401/403 | cookie 失效 | **停止**, 请用户重新导出 cookie |
 | `-102` / 连续空数据 | 风控触发 | 等 90s 重试 1 次, 仍失败则跳过该关键词并明示用户 |
+| 错误信息 "**页面渲染了登录墙, cookie 可能已过期**" | cookie 实际已过期 (XHS 渲染登录墙而不是返回结构化错误). `playwright_driver._detect_login_wall` 自动识别 | **停止**, 请用户重新导出 cookie (Chrome DevTools → Application → Cookies → 导出). 不要走 "等 90s 重试" 路径, 这不是风控 |
 | 冷启动首次 `pipeline`/`pipeline --keywords` 在 `Page.goto` 处 60s 超时 | (已修复) 旧版 `ensure_browser` 用 `wait_until="networkidle"`, XHS 后台 analytics/websocket 永远不闲, 现已改 `domcontentloaded` + `wait_for_function('window.mnsv2')` | 现 commit 后不应再出现; 若旧版本上撞到, 升级或手动改 `playwright_driver.py:123` |
 | 笔记详情拿不到正文 | `xsec_token` 缺失/失效 | 从笔记 URL 复制 xsec_token 重试 |
 | 报告缺正文/话题/时间分布 | v2 搜索卡片不含正文 (接口限制) | 加 `--enrich-notes N` 补全 Top 笔记 |
