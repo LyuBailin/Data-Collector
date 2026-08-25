@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -129,6 +130,11 @@ class CliSubprocessIntegration(unittest.TestCase):
     """
 
     def _run_cli(self, dimensions_arg):
+        # 用临时文件作为 --output, 避免污染 tests/ 目录
+        tmp_out = tempfile.NamedTemporaryFile(
+            prefix="cross_test_", suffix=".json", delete=False
+        )
+        tmp_out.close()
         return subprocess.run(
             [
                 sys.executable,
@@ -136,7 +142,7 @@ class CliSubprocessIntegration(unittest.TestCase):
                 "--runs", "sample",
                 "--dimensions", dimensions_arg,
                 "--workspace", str(REPO_ROOT / "data" / "runs"),
-                "--output", str(HERE / "_test_out.json"),
+                "--output", tmp_out.name,
             ],
             capture_output=True,
             text=True,

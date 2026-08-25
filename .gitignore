@@ -21,3 +21,7 @@ assets/bundles/
 *.tmp
 *.bak
 *.log
+
+# 测试跑出的临时产物 (避免污染)
+tests/cross_test_*.json
+tests/_test_out.json
