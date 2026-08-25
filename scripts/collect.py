@@ -119,7 +119,7 @@ def normalize_note(note):
         "user": {
             "user_id": user.get("user_id") or user.get("id") or "",
             "nickname": user.get("nickname") or user.get("nick_name") or "",
-            "fans": user.get("fans") or user.get("fans_count") or 0,
+            "fans": _parse_count(user.get("fans") or user.get("fans_count") or 0),
             "red_official": bool(user.get("red_official") or user.get("official") or False),
         },
         "interact": {
@@ -159,7 +159,7 @@ def state_note_to_api(n):
         "user": {
             "user_id": user.get("userId") or user.get("user_id") or user.get("id"),
             "nickname": user.get("nickName") or user.get("nickname") or user.get("nick_name"),
-            "fans": user.get("fans") or user.get("fansCount") or user.get("fans_count") or 0,
+            "fans": _parse_count(user.get("fans") or user.get("fansCount") or user.get("fans_count") or 0),
             "red_official": bool(user.get("redOfficial") or user.get("red_official") or user.get("official")),
         },
         "interact_info": {
@@ -590,8 +590,8 @@ def collect_search_users(client, keyword, pages):
                     "user_id": raw.get("user_id") or raw.get("id"),
                     "nickname": raw.get("nickname") or raw.get("nick_name"),
                     "red_id": raw.get("red_id") or raw.get("red_official_id"),
-                    "fans": raw.get("fans") or raw.get("fans_count"),
-                    "notes": raw.get("notes") or 0,
+                    "fans": _parse_count(raw.get("fans") or raw.get("fans_count")),
+                    "notes": _parse_count(raw.get("notes")),
                     "description": (raw.get("desc") or "")[:500],
                 },
                 "raw": raw,
