@@ -211,13 +211,47 @@ def _enrich_top_notes(client, rows, n, with_comments):
     return enriched
 
 
-def run_keyword(args, client, workspace):
-    topic = args.topic or args.keyword
+def run_keyword_for(args, client, workspace, keyword, topic_override=None):
+    """跑单个关键词的完整 pipeline。
+
+    topic_override:
+      - None: 用 args.topic (单关键词模式, 向后兼容) 或 keyword 自身
+      - 非 None: 显式指定 run folder 后缀 (批量模式用 keyword slug 派生)
+    """
+    topic = topic_override if topic_override is not None else (args.topic or keyword)
     run_dir = _make_run_dir(workspace, topic)
-    rows = collect_search_notes(client, args.keyword, args.pages, args.page_size, args.sort)
+    rows = collect_search_notes(client, keyword, args.pages, args.page_size, args.sort)
     if args.enrich_notes and rows:
         rows = _enrich_top_notes(client, rows, args.enrich_notes, args.with_comments)
-    return _full_pipeline(run_dir, rows, label=f"keyword={args.keyword}")
+    return _full_pipeline(run_dir, rows, label=f"keyword={keyword}")
+
+
+def run_keywords_batch(args, client, workspace):
+    """同进程串行跑多个关键词 (--keywords 模式)。
+
+    兑现 SKILL §2 Step 4 契约:
+      - 复用同一个 client (Chromium + cookie 单例), 不并发
+      - 每个关键词独立 run folder (topic 从 keyword 自动 slug, --topic 在批量模式下被忽略)
+      - 单关键词失败不中断批次: try/except 包裹, 记录日志后继续下一个
+      - 整体 rc: 任一关键词失败 -> 1; 全部成功 -> 0
+    """
+    kws = [k.strip() for k in (args.keywords or "").split(",") if k.strip()]
+    if not kws:
+        LOG.error("--keywords 为空或全为空白")
+        return 1
+    LOG.info("批量关键词模式: %d 个 -> 同进程串行", len(kws))
+    overall_rc = 0
+    for i, kw in enumerate(kws, 1):
+        LOG.info("=" * 60)
+        LOG.info("关键词 [%d/%d]: %s", i, len(kws), kw)
+        LOG.info("=" * 60)
+        try:
+            run_keyword_for(args, client, workspace, kw, topic_override=None)
+        except Exception as exc:
+            LOG.error("关键词 '%s' 失败, 跳过继续下一个: %s", kw, exc)
+            overall_rc = 1
+    LOG.info("批量关键词结束: rc=%d", overall_rc)
+    return overall_rc
 
 
 def run_user(args, client, workspace):
@@ -269,10 +303,15 @@ def build_parser():
     p.add_argument("--max-comment-pages", type=int, default=3)
     p.add_argument("--xsec-token", default="", help="(配合 --note) 笔记访问令牌, 从笔记 URL ?xsec_token= 复制")
     p.add_argument("--enrich-notes", type=int, default=0, metavar="N",
-                   help="(配合 --keyword) 对热度 Top N 的笔记补全正文/标签/时间 (可选 --with-comments)")
+                   help="(配合 --keyword / --keywords) 对热度 Top N 的笔记补全正文/标签/时间 (可选 --with-comments)")
     p.add_argument("--log-level", default="INFO")
-    mode = p.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--keyword", help="关键词搜索笔记")
+    # 关键词模式: --keyword (单) 与 --keywords (多, 逗号分隔) 二选一; 批量模式同进程串行, 复用 Chromium/cookie 单例
+    kw = p.add_mutually_exclusive_group()
+    kw.add_argument("--keyword", help="单关键词搜索笔记 (例: --keyword 'hc 缩减')")
+    kw.add_argument("--keywords", help="多关键词 (逗号分隔), 同进程串行跑, 复用 Chromium/cookie 单例 "
+                    "(例: --keywords 'hc 缩减,面试经验,大厂避雷')")
+    # 其他模式: 四选一 (与上面 kw 组互斥, 由 main 校验 '恰好一个')
+    mode = p.add_mutually_exclusive_group()
     mode.add_argument("--user", help="用户主页笔记")
     mode.add_argument("--note", help="单篇笔记 (可选 --with-comments)")
     mode.add_argument("--hotlist", action="store_true", help="热门榜")
@@ -298,10 +337,24 @@ def main(argv=None):
     client.load()
 
     LOG.info("pipeline 启动 @ %s, workspace=%s", dt.datetime.now(dt.timezone.utc).isoformat(), workspace)
+
+    # 互斥校验: keyword/keywords/user/note/hotlist/search-user 恰好一个
+    non_kw_mode = [args.user, args.note, args.hotlist, args.search_user]
+    n_kw = sum(1 for x in [args.keyword, args.keywords] if x)
+    n_mode = sum(1 for x in non_kw_mode if x)
+    if args.keyword and args.keywords:
+        LOG.error("--keyword 与 --keywords 互斥, 二选一")
+        return 2
+    if n_kw + n_mode != 1:
+        LOG.error("必须且只能选择一个模式: --keyword / --keywords / --user / --note / --hotlist / --search-user")
+        return 2
+
     rc = 0
     try:
         if args.keyword:
-            rc = run_keyword(args, client, workspace)
+            rc = run_keyword_for(args, client, workspace, args.keyword)
+        elif args.keywords:
+            rc = run_keywords_batch(args, client, workspace)
         elif args.user:
             rc = run_user(args, client, workspace)
         elif args.note:
