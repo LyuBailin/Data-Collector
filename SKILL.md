@@ -125,7 +125,7 @@ python scripts/cross_analyze.py \
 
 ## 3. 开始前检查 (每次任务必做)
 
-1. **Python 环境**: 使用 `data-collect` conda 环境 (含 requests/jieba/playwright), 首次运行先 `python -m playwright install chromium` (含 chromium + chromium-headless-shell)。所有命令在仓库根目录执行。
+1. **Python 环境**: 使用 `data-collect` conda 环境 (Python ≥ 3.10, 推荐 3.12), 依赖装 `pip install -r requirements.txt` (含 `requests` / `jieba` / `playwright`)。首次运行先 `python -m playwright install chromium` (含 chromium-headless-shell, 不要漏)。所有命令在仓库根目录执行。
 2. **Cookie**: `assets/cookies.json` 必须存在且有效。
    - 先跑 `python scripts/xhs_client.py whoami` 确认 cookie **格式能解析**(只打印 cookie 摘要, 不打 XHS)
    - 再跑一次**最小真实请求**验证 cookie **真有效**: `python scripts/pipeline.py --keyword "本周热榜" --pages 1 --workspace data/runs/_cookie_test` (完成后 `rm -rf data/runs/_cookie_test`)

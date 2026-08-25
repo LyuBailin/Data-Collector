@@ -1,0 +1,19 @@
+# 小红书采集 skill — Python 依赖
+# 最低 Python 3.10 (用到 | union 类型 / pathlib / 字典合并)
+# 实测 Python 3.12 (见 scripts/__pycache__/cpython-312.pyc)
+
+# XHS HTTP / 签名注入 (xhs_client.py)
+requests>=2.31
+
+# 浏览器内签名拦截 (playwright_driver.py, collect.py, capture_sdk.py)
+# 装包后必须再: python -m playwright install chromium
+# (含 chromium-headless-shell, 见 SKILL.md §3.1)
+playwright>=1.40
+
+# 中文分词 + 关键词抽取 (enrich.py: jieba / jieba.analyse)
+# 注: enrich.py 有 try/except 兜底, 缺 jieba 时 JIEBA_OK=False 不会崩,
+# 但 keywords / topics 字段会缺失, 报告关键词维度空. 必须装.
+jieba>=0.42
+
+# ---------- 测试 (开发用, 跑测试才需要) ----------
+# pytest>=7.4
