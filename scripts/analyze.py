@@ -899,6 +899,8 @@ def main(argv=None):
     p.add_argument("--in", dest="src", required=True, help="输入 enriched JSONL")
     p.add_argument("--report", required=True, help="输出 Markdown 报告路径")
     p.add_argument("--summary", required=True, help="输出 summary JSON 路径")
+    p.add_argument("--notes-csv", default=None, help="(可选) 导出 notes CSV 路径")
+    p.add_argument("--comments-csv", default=None, help="(可选) 导出 comments CSV 路径 (仅当记录含评论时)")
     p.add_argument("--log-level", default="INFO")
     args = p.parse_args(argv)
 
@@ -915,6 +917,14 @@ def main(argv=None):
     md = render_markdown(summary, args.src)
     _write_text(Path(args.report), md)
     LOG.info("已写入 %s", args.report)
+
+    if args.notes_csv:
+        n = export_notes_csv(records, Path(args.notes_csv))
+        LOG.info("已写入 notes CSV: %d -> %s", n, args.notes_csv)
+    if args.comments_csv and any(r.get("is_comment") for r in records):
+        n = export_comments_csv(records, Path(args.comments_csv))
+        LOG.info("已写入 comments CSV: %d -> %s", n, args.comments_csv)
+
     print(f"summary={args.summary}, report={args.report}")
     return 0
 

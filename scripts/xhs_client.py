@@ -362,8 +362,8 @@ class XHSClient:
                         raise RuntimeError(f"账号状态异常 (code=300011): {msg} —— 请换一组新鲜 cookie 后重试")
                     if code == -102 and attempt < self.max_retries:
                         attempt += 1
-                        LOG.warning("风控触发 (code=-102), 等待 60s 后重试 (第 %d 次)", attempt)
-                        time.sleep(60)
+                        LOG.warning("风控触发 (code=-102), 等待 90s 后重试 (第 %d 次)", attempt)
+                        time.sleep(90)
                         continue
                     return {"code": code, "success": False, "msg": msg,
                             "data": data.get("data") or {}, "_status": status}
@@ -426,8 +426,8 @@ class XHSClient:
             if "account.frozen" in msg or "frozen" in msg:
                 raise RuntimeError("账号被风控冻结, 请停止抓取")
             if code == -102:
-                LOG.warning("风控触发, 等待 60s 后重试 (第 %d 次)", attempt)
-                time.sleep(60)
+                LOG.warning("风控触发, 等待 90s 后重试 (第 %d 次)", attempt)
+                time.sleep(90)
                 continue
             if code == 404 or "path invalid" in msg:
                 raise RuntimeError(f"接口路径失效: {data}")
