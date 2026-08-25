@@ -34,6 +34,55 @@ LOG = logging.getLogger("collect")
 
 # -------------------------- 字段归一化 --------------------------
 
+def _parse_count(v):
+    """解析 XHS 互动数字字段 (liked / collected / comment / share).
+
+    XHS 在大数字上会返回字符串格式:
+      - '1.3万' = 13000
+      - '1.2w'  = 12000  (Western 风格)
+      - '1k'    = 1000
+      - '1000+' = 1000  (带 + 表示至少)
+      - '1,234' = 1234  (千分位)
+      - 数字     -> 原样
+      - 解析失败 -> 0 (graceful, 不抛)
+
+    之前的 int(...) 在 '1.3万' 上 ValueError, _enrich_top_notes 整条跳过
+    (WARNING 'invalid literal for int() with base 10'). 现在 silent fallback 到 0,
+    笔记本身仍会被保留 (只是互动数是粗略值, 不影响 note_id 溯源).
+    """
+    if v is None or v == "":
+        return 0
+    if isinstance(v, bool):  # bool 是 int 子类, 但 True=1, False=0 不合语义
+        return 0
+    if isinstance(v, (int, float)):
+        return int(v)
+    s = str(v).strip().replace(",", "").rstrip("+")
+    if not s:
+        return 0
+    # Chinese 万 / Western w (= 10000)
+    if s.endswith("万"):
+        try:
+            return int(float(s[:-1]) * 10000)
+        except ValueError:
+            return 0
+    if s[-1].lower() == "w":
+        try:
+            return int(float(s[:-1]) * 10000)
+        except ValueError:
+            return 0
+    # k (= 1000)
+    if s[-1].lower() == "k":
+        try:
+            return int(float(s[:-1]) * 1000)
+        except ValueError:
+            return 0
+    # Plain number
+    try:
+        return int(s)
+    except ValueError:
+        return 0
+
+
 def _ts_iso(ms):
     if not ms:
         return None
@@ -74,10 +123,10 @@ def normalize_note(note):
             "red_official": bool(user.get("red_official") or user.get("official") or False),
         },
         "interact": {
-            "liked": int(interact.get("liked_count") or interact.get("liked") or 0),
-            "collected": int(interact.get("collected_count") or interact.get("collected") or 0),
-            "comment": int(interact.get("comment_count") or interact.get("comment") or 0),
-            "share": int(interact.get("share_count") or interact.get("shared_count") or interact.get("share") or 0),
+            "liked": _parse_count(interact.get("liked_count") or interact.get("liked") or 0),
+            "collected": _parse_count(interact.get("collected_count") or interact.get("collected") or 0),
+            "comment": _parse_count(interact.get("comment_count") or interact.get("comment") or 0),
+            "share": _parse_count(interact.get("share_count") or interact.get("shared_count") or interact.get("share") or 0),
         },
         "cover_url": cover,
         "video_url": video_url,
@@ -145,25 +194,17 @@ def normalize_comment(c, schema="v2"):
     else:
         ui = c.get("user") or {}
 
-    def _to_int(v):
-        if v is None:
-            return 0
-        try:
-            return int(v)
-        except (TypeError, ValueError):
-            return 0
-
     return {
         "comment_id": c.get("id") or c.get("comment_id"),
         "content": (c.get("content") or "")[:2000],
-        "liked": _to_int(c.get("like_count")),
+        "liked": _parse_count(c.get("like_count")),
         "ts": c.get("create_time") or c.get("time") or 0,
         "ts_iso": _ts_iso(c.get("create_time") or c.get("time")),
         "user": {
             "user_id": ui.get("user_id") or ui.get("id"),
             "nickname": ui.get("nickname") or ui.get("nick_name"),
         },
-        "sub_count": _to_int(c.get("sub_comment_count")),
+        "sub_count": _parse_count(c.get("sub_comment_count")),
         "ip_location": c.get("ip_location", ""),
         "liked_by_me": bool(c.get("liked", False)),
         "sub_comments": [normalize_comment(s, schema="v2") for s in (c.get("sub_comments") or [])],
