@@ -177,17 +177,28 @@ def _enrich_top_notes(client, rows, n, with_comments):
 
     热度 = liked*1 + collected*3 + comment*2 (与 enrich.heat_score 权重一致)。
     补全用 collect_note_full (页面驱动, 一次导航拿笔记+评论)。
+
+    n 的语义:
+      n > 0 : 补全热度 Top n
+      n == 0: 不补全
+      n < 0 : 补全全部
     """
     notes = [r for r in rows if (r.get("item") or {}).get("note_id")]
     if not notes:
         LOG.warning("无笔记可补全")
+        return rows
+    if n == 0:
         return rows
 
     def _score(r):
         it = (r.get("item") or {}).get("interact") or {}
         return int(it.get("liked") or 0) * 1 + int(it.get("collected") or 0) * 3 + int(it.get("comment") or 0) * 2
 
-    ranked = sorted(notes, key=_score, reverse=True)[:n]
+    ranked = sorted(notes, key=_score, reverse=True)
+    if n > 0:
+        ranked = ranked[:n]
+    else:
+        LOG.info("补全全部 %d 条 (n<0 触发)", len(ranked))
     target_ids = [r["item"]["note_id"] for r in ranked]
     LOG.info("补全 Top %d 笔记详情: %s", len(target_ids), target_ids)
 
@@ -313,8 +324,10 @@ def build_parser():
     p.add_argument("--with-comments", action="store_true", help="(配合 --note / --enrich-notes) 同时抓评论")
     p.add_argument("--max-comment-pages", type=int, default=3)
     p.add_argument("--xsec-token", default="", help="(配合 --note) 笔记访问令牌, 从笔记 URL ?xsec_token= 复制")
-    p.add_argument("--enrich-notes", type=int, default=0, metavar="N",
-                   help="(配合 --keyword / --keywords) 对热度 Top N 的笔记补全正文/标签/时间 (可选 --with-comments)")
+    p.add_argument("--enrich-notes", type=int, default=-1, metavar="N",
+                   help="(配合 --keyword / --keywords) 对热度 Top N 的笔记补全正文/标签/时间 (可选 --with-comments). "
+                        "N>0: Top N; N=0: 不补全; N<0 (默认 -1): 补全全部. "
+                        "搜索接口返回的 note_card.desc 通常为空字符串, 要拿到正文必须显式补全.")
     p.add_argument("--log-level", default="INFO")
     # 关键词模式: --keyword (单) 与 --keywords (多, 逗号分隔) 二选一; 批量模式同进程串行, 复用 Chromium/cookie 单例
     kw = p.add_mutually_exclusive_group()

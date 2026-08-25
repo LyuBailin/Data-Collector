@@ -12,9 +12,11 @@ description: 小红书内容采集 + 本地分析。用户提供本人 cookie �
 3. **批量跑 pipeline**:
    ```bash
    python scripts/pipeline.py --keywords "kw1,kw2,kw3" \
-       --pages 1 --enrich-notes 5 --with-comments --workspace data/runs
+       --pages 1 --with-comments --workspace data/runs
    ```
    同一进程串行, 复用 Chromium/cookie 单例 (cookie 是敏感文件, .gitignore 已排除)。输出 N 个 `data/runs/<日期>_<topic>/`, 每文件夹 7 个文件。
+
+   **补全正文 (`--enrich-notes` 默认 -1 = 全部)**: 搜索接口返回的 `note_card.desc` 通常为空字符串, 不补全就拿不到正文。默认 -1 表示**对所有搜索卡片都调一次详情 API 拿完整正文 + 标签 + 时间**; 设 0 完全不补全 (与搜索卡片描述一致, 即正文 0 字); 设 N>0 仅补热度 Top N. 详见 `python scripts/pipeline.py --help`.
 4. **跨 run 聚合**:
    ```bash
    python scripts/cross_analyze.py --runs "AI神器,AI工具推荐,AI入门" \
@@ -28,7 +30,7 @@ description: 小红书内容采集 + 本地分析。用户提供本人 cookie �
 
 1. `pip install -r requirements.txt` + `python -m playwright install chromium` (含 chromium-headless-shell)
 2. `python scripts/xhs_client.py whoami` 验证 cookie 文件能解析 (只解析, 不打 XHS)
-3. 跑一次 `pipeline.py --keyword <tiny_term> --pages 1 --workspace data/runs/_cktest` 验证 cookie **真有效** (完成后 `rm -rf data/runs/_cktest`)
+3. 跑一次 `pipeline.py --keyword <tiny_term> --pages 1 --enrich-notes 0 --workspace data/runs/_cktest` 验证 cookie **真有效** (用 `--enrich-notes 0` 跳过补全, 跑完 `rm -rf data/runs/_cktest`; 真实调研时不要带这个标志, 让默认 -1 补全全部)
 4. cookie 缺失 / 错误信息含 "**页面渲染了登录墙, cookie 可能已过期**" → **立即停止**, 让用户重新导出 (Chrome DevTools → Application → Cookies)
 
 ## 单模式命令(用户给明确目标时)
