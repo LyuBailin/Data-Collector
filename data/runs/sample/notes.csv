@@ -1,0 +1,9 @@
+﻿note_id,title,desc_plain,tags,type,detail_enriched,user_id,nickname,fans,liked,collected,comment,share,engagement_rate,heat_score,sentiment,sentiment_score,keywords,ts_iso,ip_location,share_url
+n0,夏日露营装备清单 | 轻量化测评,"今天给大家推荐几款轻量化的露营装备,超好用!",露营|装备|轻量化|户外|旅行|推荐|种草,normal,False,u1,小A同学,5000,1234,800,120,60,0.4308,7.6762,positive,1.0,轻量化|露营|超好|装备|几款|测评|夏日|清单|推荐,2026-08-23T01:39:06.508Z,上海,https://www.xiaohongshu.com/explore/n0
+n1,踩雷了!这个帐篷真的不值,"买了一个帐篷,1000块结果漏水。吐槽一下,太差劲了。",避雷|露营,normal,False,u2,踩雷博主,1200,320,90,45,12,0.379167,5.5386,negative,-1.0,帐篷|1000|吐槽|差劲|漏水|不值|真的|结果|一下,2026-08-21T01:39:06.508Z,北京,https://www.xiaohongshu.com/explore/n1
+n2,限时优惠!扫码进群领福利 @xxx,限时优惠扫码进群 @xxx @yyy s://example.com,福利|优惠|好物|种草|抽奖|红包 http,normal,False,u3,推广号,30000,50,5,1,0,0.001867,3.3117,neutral,0.0,扫码|xxx|限时|优惠|进群领|进群|yyy|example|福利,2026-08-19T01:39:06.508Z,广东,https://www.xiaohongshu.com/explore/n2
+n3,3天2夜武功山徒步攻略,"上周末和朋友去武功山徒步,分享我们的路线和装备清单。",徒步|户外|旅行|攻略,normal,False,u4,资深驴友,28000,890,450,88,35,0.051,5.8455,neutral,0.0,武功山|徒步|攻略|清单|上周末|路线|装备|朋友,2026-08-17T01:39:06.508Z,杭州,https://www.xiaohongshu.com/explore/n3
+n4,新手必看!第一次露营避坑指南,"整理了10个新手露营常见问题,看完再出发!",露营|新手|装备|攻略,normal,False,u5,小白玩家,300,2300,1100,250,95,3.65,6.2744,negative,-1.0,露营|新手|常见问题|必看|避坑|10|指南|出发|整理|第一次,2026-08-15T01:39:06.508Z,成都,https://www.xiaohongshu.com/explore/n4
+n5,这家咖啡馆氛围感拉满,"今天发现一家宝藏咖啡馆,氛围感十足,适合拍照。",咖啡|宝藏|氛围,normal,False,u1,小A同学,5000,560,300,67,22,0.1854,5.1359,positive,1.0,咖啡馆|氛围|感拉满|拍照|宝藏|十足|这家|适合|一家,2026-08-13T01:39:06.508Z,上海,https://www.xiaohongshu.com/explore/n5
+n6,city walk 上海武康路,"周末city walk路线分享,沿途小店和美食推荐。",上海|citywalk,normal,False,u2,踩雷博主,1200,410,220,41,14,0.559167,4.7733,positive,1.0,city|walk|康路|小店|美食|沿途|周末|路线|推荐,2026-08-11T01:39:06.508Z,上海,https://www.xiaohongshu.com/explore/n6
+n7,买了3款款款踩雷的护肤品,姐妹们千万别买!用了过敏,避雷|护肤,normal,False,u3,推广号,30000,180,60,23,5,0.008767,3.9796,negative,-1.0,护肤品|款款|过敏|千万别|姐妹,2026-08-09T01:39:06.508Z,广州,https://www.xiaohongshu.com/explore/n7

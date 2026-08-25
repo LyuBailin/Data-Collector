@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-24T09:13:03.199507+00:00",
+  "generated_at": "2026-08-25T01:44:50.856154+00:00",
   "total": 8,
   "notes": 8,
   "comments": 0,
@@ -631,6 +631,10 @@
     "max": 0
   },
   "top_comments": [],
+  "real_discussion": [],
+  "question_comments": [],
+  "longtail_comments": [],
+  "top_question_notes": [],
   "top_commenters": [],
   "top_hotlist": []
 }
