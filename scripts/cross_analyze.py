@@ -54,7 +54,10 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
+import logging  # noqa: E402
+
 LOG_NAME = "cross_analyze"
+LOG = logging.getLogger(LOG_NAME)
 
 
 # ----------------------------- 维度解析 -----------------------------
@@ -99,7 +102,11 @@ def _has_any(text: str, words: Set[str]) -> bool:
 
 
 def _load_run(slug: str, workspace: Path) -> List[dict]:
-    """加载单个 run folder 的 enriched.jsonl. 支持同 slug 的多个副本 (取最新的)."""
+    """加载单个 run folder 的 enriched.jsonl. 支持同 slug 的多个副本 (取最新的).
+
+    选中行为对 agent 可见: 同 slug 多副本时显式 LOG.warning 列出所有候选 + 选了哪个,
+    无候选时 LOG.warning 提示 (agent 才能感知 'slug 拼错' 或 'pipeline 没跑' 这类错).
+    """
     candidates = []
     for p in workspace.iterdir():
         if not p.is_dir():
@@ -115,11 +122,21 @@ def _load_run(slug: str, workspace: Path) -> List[dict]:
         candidates.append(p)
 
     if not candidates:
+        LOG.warning("slug '%s' 在 %s 下无匹配 run folder (检查 pipeline.py 是否成功跑过该关键词, "
+                    "或 --runs 拼写是否与 --keywords 一字不差)", slug, workspace)
         return []
     # 取最后一个 (按字典序, _2 > _1 > base)
     candidates.sort(key=lambda p: p.name)
-    f = candidates[-1] / "enriched.jsonl"
+    chosen = candidates[-1]
+    if len(candidates) > 1:
+        names = ", ".join(c.name for c in candidates)
+        LOG.warning("slug '%s' 匹配到 %d 个 run folder: [%s]; 选中 '%s' (字典序最后)",
+                    slug, len(candidates), names, chosen.name)
+    else:
+        LOG.info("slug '%s' -> run folder '%s'", slug, chosen.name)
+    f = chosen / "enriched.jsonl"
     if not f.exists():
+        LOG.warning("run folder '%s' 缺少 enriched.jsonl", chosen.name)
         return []
     out = []
     for line in f.read_text(encoding="utf-8").splitlines():

@@ -126,7 +126,11 @@ python scripts/cross_analyze.py \
 ## 3. 开始前检查 (每次任务必做)
 
 1. **Python 环境**: 使用 `data-collect` conda 环境 (含 requests/jieba/playwright), 首次运行先 `python -m playwright install chromium` (含 chromium + chromium-headless-shell)。所有命令在仓库根目录执行。
-2. **Cookie**: `assets/cookies.json` 必须存在且有效。先跑 `python scripts/xhs_client.py whoami` 确认能解析。失效信号 `-101` / HTTP 401/403 → 停止并请用户重新导出 (Chrome DevTools → Application → Cookies → 导出)。cookie 是敏感文件 (`.gitignore` 已排除), **绝不写入 git / 聊天记录**。
+2. **Cookie**: `assets/cookies.json` 必须存在且有效。
+   - 先跑 `python scripts/xhs_client.py whoami` 确认 cookie **格式能解析**(只打印 cookie 摘要, 不打 XHS)
+   - 再跑一次**最小真实请求**验证 cookie **真有效**: `python scripts/pipeline.py --keyword "本周热榜" --pages 1 --workspace data/runs/_cookie_test` (完成后 `rm -rf data/runs/_cookie_test`)
+   - 失效信号 `-101` / HTTP 401/403 / `code:300011` → **停止**, 请用户重新导出 (Chrome DevTools → Application → Cookies → 导出)
+   - cookie 是敏感文件 (`.gitignore` 已排除), **绝不写入 git / 聊天记录**
 3. **从用户消息解析参数**:
    - 笔记链接 `https://www.xiaohongshu.com/explore/<note_id>?xsec_token=<token>&...` → 提取 `note_id` 和 `xsec_token` (URL 里 `xsec_token=` 后面的值)
    - 用户主页链接 `https://www.xiaohongshu.com/user/profile/<user_id>` → 提取 `user_id`
@@ -229,6 +233,7 @@ python scripts/analyze.py --in data/enriched/x.jsonl --report x.report.md --summ
 | 多关键词跑时被中断 | 第 N 个关键词触发风控 | 后续关键词的 run folder 会自动加 `_1` `_2` 后缀, 不影响 |
 | `cross_analyze.py` 参数解析失败 (exit 3) | `--dimensions` 格式不对 (缺冒号 / 空关键词 / 维度名重复) | 按报错信息修正 `name:kw1,kw2;name2:kw3,kw4` 格式 |
 | `cross_analyze.py` 退出码 2 + `WARN: 维度 X 命中稀薄` | 该维度在本次样本里 0 笔记命中 (通常是关键词设计错误, 词不贴社区) | 换成该社区实际使用的关键词重跑, 或从报告里去掉该维度并明示用户 |
+| `cross_analyze.py` 报 `WARN: slug 'X' 在 ... 下无匹配 run folder` | `--runs` 的 slug 与 `--keywords` 拼写不一致, 或对应关键词 pipeline 没跑过 | 检查 `data/runs/` 实际 folder 名, 把 `--runs` 改成与之字面一致; 同 slug 多副本时会显式列出所有候选 + 选了哪个 |
 
 ## 8. Agent 后续处理契约 (基于 desc_plain / content 写报告)
 
