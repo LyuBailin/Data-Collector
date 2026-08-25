@@ -73,7 +73,23 @@ description: 小红书公开/半公开内容采集与本地化分析 skill。能
 
 ### Step 4 — 并行 / 串行执行多关键词 pipeline
 
-每个关键词跑一次 `pipeline.py --keyword ... --topic <slug> --pages 1 --enrich-notes 5 --with-comments --workspace data/runs`。多个 pipeline **同进程串行跑** (cookie + Chromium 单例必须复用, 不可并发)。如果触风控 (`-102` / `networkidle` 超时), 按 §6 等 90s 重试, 仍失败则跳过该关键词并明示用户。
+**用 `--keywords` 一个进程跑全部关键词** (推荐, 复用 Chromium + cookie 单例):
+
+```bash
+python scripts/pipeline.py \
+    --keywords "kw1,kw2,kw3" \
+    --pages 1 --enrich-notes 5 --with-comments \
+    --workspace data/runs
+```
+
+- 逗号分隔多个关键词, **同进程串行** (cookie + Chromium 单例必须复用, 不可并发)
+- 每个关键词独立 run folder (topic 从 keyword 自动 slug, `--topic` 在批量模式下被忽略)
+- 单关键词失败不会中断整个批次, graceful degradation (跳过该词继续下一个, 整体 rc=1)
+- 详细参数见 §5 速查表
+
+**旧写法 (不推荐)**: 也可以 N 次 `pipeline.py --keyword X --topic <slug>`。但每次启动独立进程 = N 次 Chromium 冷启, 仅在必须不同 `--topic` / `--sort` 时才用。
+
+**风控处理**: 如果触风控 (`-102` / `networkidle` 超时), 按 §7 等 90s 重试, 仍失败则跳过该关键词并明示用户。
 
 **Step 4 后产生 N 个 run folder**, 每个含 7 个文件 (`raw.jsonl / clean.jsonl / enriched.jsonl / report.md / summary.json / notes.csv / comments.csv`)。
 
@@ -128,17 +144,20 @@ python scripts/pipeline.py --keyword "关键词" --pages 3 --workspace data/runs
 
 ### 4.2 多关键词调研 (推荐路径, 与 §2 Step 4 对应)
 ```bash
-# 每个维度一组关键词, 跑出多个 run folder
-python scripts/pipeline.py --keyword "hc 缩减"  --pages 1 --enrich-notes 5 --with-comments --workspace data/runs --topic hcsuojian
-python scripts/pipeline.py --keyword "面试经验" --pages 1 --enrich-notes 5 --with-comments --workspace data/runs --topic mianshi
-# ... 每个关键词一组, 全部同进程串行跑
+# 一个进程串行跑多个关键词 (推荐, Chromium/cookie 单例复用)
+python scripts/pipeline.py \
+    --keywords "hc 缩减,面试经验,大厂避雷" \
+    --pages 1 --enrich-notes 5 --with-comments \
+    --workspace data/runs
 
-# 跑完后跨 run 聚合
+# 跑完后跨 run 聚合 (--dimensions 必须用 name:kw1,kw2;name2:kw3,kw4 格式, 维度由 agent 设计)
 python scripts/cross_analyze.py \
-    --runs hcsuojian,mianshi,dachangbilei \
-    --dimensions hc,interview,company \
+    --runs "hc 缩减,面试经验,大厂避雷" \
+    --dimensions "hc:hc,缩招,秋招,校招,暑期转正;interview:面经,面试,上岸;company:大厂,字节,996,裁员" \
     --workspace data/runs
 ```
+
+> **注意**:`--runs` 的 slug 必须与 `--keywords` 中的关键词**字面一致**(脚本按 `_slugify(keyword)` 命名 run folder, 中文标点/空格保留, 简体原样)。如果关键词含逗号导致 `--runs` 转义复杂, 先跑一次 `--keywords` 看实际生成的 folder 名(形如 `2026-08-25_hc 缩减/`), 再把这些名字拼到 `--runs`。
 
 ### 4.3 单篇笔记 + 评论
 ```bash
@@ -168,12 +187,13 @@ python scripts/analyze.py --in data/enriched/x.jsonl --report x.report.md --summ
 
 | 参数 | 适用模式 | 说明 |
 | --- | --- | --- |
-| `--keyword` / `--pages` | keyword | 关键词与页数 (默认 3 页 ≈ 60 条; 搜索卡片无正文/时间戳) |
+| `--keyword` / `--pages` | keyword | 单关键词与页数 (默认 3 页 ≈ 60 条; 搜索卡片无正文/时间戳) |
+| `--keywords "k1,k2,..."` | keyword (批量) | 多关键词 (逗号分隔), 同进程串行跑, 复用 Chromium/cookie 单例; 每个关键词独立 run folder; 单关键词失败不中断批次 |
 | `--enrich-notes N` | keyword | 对热度 Top N 补全正文/标签/时间戳 (推荐 10; 多关键词场景推荐 5) |
 | `--with-comments` | keyword/note | 同时抓评论 (补全时评论来自同一页面导航, 不额外耗请求) |
 | `--note` / `--user` / `--hotlist` / `--search-user` | 模式 | 互斥, 必须且只能选一个 |
 | `--xsec-token` | note | 笔记访问令牌 |
-| `--topic` | 全部 | run folder 名字后缀, **多关键词场景必须显式指定**, 默认由 keyword/user/note 推断 |
+| `--topic` | 单 keyword / user / note / hotlist | run folder 名字后缀, 默认由 keyword/user/note 推断; **批量模式 (`--keywords`) 下被忽略**, topic 自动从 keyword 派生 |
 | `--workspace` | 全部 (仅 pipeline.py) | 输出根目录 (默认 `data/runs`, 每次新建 `<日期>_<topic>` 子目录) |
 | `--sign-engine` | 全部 | 默认 `browser` (页面驱动); `node`/`legacy` 仅供调试, 当前 XHS 拒绝 |
 | `--category` | hotlist | 热门榜分类, 默认 `general` |
@@ -256,13 +276,14 @@ python -m playwright install chromium   # 首次 (含 chromium-headless-shell)
 python scripts/xhs_client.py whoami
 python scripts/xhs_client.py init-cookie
 
-# 多关键词调研 (§2 推荐路径)
-python scripts/pipeline.py --keyword "183 胖穿搭" --pages 1 --enrich-notes 5 --with-comments --workspace data/runs --topic pants183
-python scripts/pipeline.py --keyword "大码男装" --pages 1 --enrich-notes 5 --with-comments --workspace data/runs --topic daman
-python scripts/pipeline.py --keyword "胖男生穿搭" --pages 1 --enrich-notes 5 --with-comments --workspace data/runs --topic pangnansheng
-# 跨 run 聚合: 维度由 agent 设计, 无内置维度
+# 多关键词调研 (§2 推荐路径, 一次进程跑全部)
+python scripts/pipeline.py \
+    --keywords "183 胖穿搭,大码男装,胖男生穿搭" \
+    --pages 1 --enrich-notes 5 --with-comments \
+    --workspace data/runs
+# 跨 run 聚合: 维度由 agent 设计, 无内置维度; --runs 用关键词字面 (与 --keywords 对应)
 python scripts/cross_analyze.py \
-    --runs pants183,daman,pangnansheng \
+    --runs "183 胖穿搭,大码男装,胖男生穿搭" \
     --dimensions "fit:穿搭,搭配,显瘦,显高,遮肚,版型;brand:大码,微胖,胖男生,品牌,店铺" \
     --workspace data/runs
 

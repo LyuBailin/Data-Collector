@@ -245,8 +245,10 @@ def run_keywords_batch(args, client, workspace):
         LOG.info("=" * 60)
         LOG.info("关键词 [%d/%d]: %s", i, len(kws), kw)
         LOG.info("=" * 60)
+        # 批量模式下 topic 强制 = keyword 自身 (slug 派生 run folder 名),
+        # 与 docstring "topic 从 keyword 自动 slug, --topic 在批量模式下被忽略" 一致.
         try:
-            run_keyword_for(args, client, workspace, kw, topic_override=None)
+            run_keyword_for(args, client, workspace, kw, topic_override=kw)
         except Exception as exc:
             LOG.error("关键词 '%s' 失败, 跳过继续下一个: %s", kw, exc)
             overall_rc = 1
