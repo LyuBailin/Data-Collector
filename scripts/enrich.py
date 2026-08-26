@@ -6,9 +6,12 @@ enrich.py - 数据增强
 输出: data/enriched/*.jsonl
 
 每个笔记附加:
-  - keywords:    jieba.analyse 抽取的关键词 (top 10)
-  - topics:      来自 tags 的归一化主题词
-  - sentiment:   基于内置情感词典的极性 + 得分 [-1, 1]
+  - keywords:    jieba.analyse.extract_tags 抽取的关键词 (TF-IDF, top 10)
+  - topics:      jieba.analyse.textrank 抽取的关键短语 (TextRank, graph-based, top 5)
+                 历史: 旧版 'topics' 字段是 normalize_topics(tags), 实际就是 tags 去空格版,
+                 agent 看 report.md 困惑. 改用 textrank 后, keywords (TF-IDF 单高频词) 与
+                 topics (TextRank 关键短语) 算法不同, 真正互补.
+  - sentiment:   基于内置情感词典的极性 + 得分 [-1, 1], 含否定/避免上下文处理
   - summary:     按字数截取的 1-2 句摘要
   - heat_score:  内部热度 = log1p(liked*1 + collected*3 + comment*2 + share*4) * 时效因子
   - is_short:    desc 字数 < 40 的标记
@@ -152,12 +155,30 @@ def _fallback_keywords(text, topk):
 _POS_RE = re.compile("|".join(sorted(_POSITIVE, key=len, reverse=True)))
 _NEG_RE = re.compile("|".join(sorted(_NEGATIVE, key=len, reverse=True)))
 
+# 否定/避免前缀 — 出现这些词后的正/负词不计入该极性
+# (例如 "避免烂脸" / "不刺激" / "防止翻车" / "拒绝内卷" 应理解为正面建议, 不是负面)
+_NEGATION_BEFORE = ("不", "别", "避免", "防止", "无需", "没有", "不易", "不会",
+                    "不要", "绝不", "杜绝", "难以", "不是", "不怎么", "不算",
+                    "拒绝", "反对", "不曾", "未曾")
+_NEG_WINDOW = 8  # 词前 8 字窗口内出现否定前缀就跳过
+
+
+def _count_with_negation(text: str, words_re: re.Pattern) -> int:
+    """对每个匹配位置, 检查前 8 字窗口是否含否定/避免前缀. 含则跳过."""
+    count = 0
+    for m in words_re.finditer(text):
+        pre = text[max(0, m.start() - _NEG_WINDOW):m.start()]
+        if any(neg in pre for neg in _NEGATION_BEFORE):
+            continue
+        count += 1
+    return count
+
 
 def sentiment_score(text):
     if not text:
         return 0.0
-    pos = len(_POS_RE.findall(text))
-    neg = len(_NEG_RE.findall(text))
+    pos = _count_with_negation(text, _POS_RE)
+    neg = _count_with_negation(text, _NEG_RE)
     total = pos + neg
     if total == 0:
         return 0.0
@@ -223,7 +244,26 @@ def ad_like_score(text, tags):
     return round(min(1.0, score), 4)
 
 
+def extract_topics(text: str, top_k: int = 5) -> list:
+    """用 jieba.analyse.textrank 抽取关键短语 (与 extract_tags 单 TF-IDF 不同).
+
+    历史: 旧版 'topics' 字段是 normalize_topics(tags), 实际就是 tags 去空格版,
+    agent 看 report.md 困惑 (所谓 '主题' 跟 tags 完全一样). 改用 textrank:
+      - keywords: TF-IDF 单高频词 (jieba.analyse.extract_tags)
+      - topics:   TextRank 关键短语 (jieba.analyse.textrank, graph-based)
+    两算法侧重不同: keywords 偏统计频率, topics 偏语义中心. desc 空时
+    返回 [] (与之前 normalize_topics 对 tags=[] 行为一致).
+    """
+    if not text:
+        return []
+    try:
+        return jieba.analyse.textrank(text, topK=top_k)
+    except Exception:
+        return []
+
+
 def normalize_topics(tags):
+    """deprecated: 旧版 topics 实现 = tags 去空格. 现在用 extract_topics."""
     if not tags:
         return []
     out = []
@@ -270,7 +310,7 @@ def enrich_note(rec):
     tags = rec.get("tags") or []
     text_for_kw = (title + "\n" + desc).strip()
     keywords = extract_keywords(text_for_kw, topk=10)
-    topics = normalize_topics(tags)
+    topics = extract_topics(text_for_kw, top_k=5)
     sentiment = sentiment_score(text_for_kw)
     summary = make_summary(desc)
     interact = rec.get("interact") or {}

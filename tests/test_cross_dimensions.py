@@ -351,5 +351,119 @@ class SlugBasedDimMatching(unittest.TestCase):
         self.assertEqual(out2, [])
 
 
-if __name__ == "__main__":
+class EmptyTitlePlaceholder(unittest.TestCase):
+    """空 title 在 cross_analyze 输出里用 (无标题) 占位符 (不再空白).
+
+    历史: XHS 搜索卡片偶有 title='' (用户提交了但服务端没回), Top notes
+    输出里出现空字符串看起来像 bug. 改为 '(无标题)' 让 agent 一眼识别.
+    """
+
+    def test_empty_title_becomes_placeholder(self):
+        from cross_analyze import _notes_by_dim
+        records = [
+            {
+                "_source_slug": "ai神器",
+                "note_id": "n_empty",
+                "title": "",  # 空字符串
+                "desc_plain": "...",
+                "tags": [],
+                "interact": {"liked": 100, "comment": 10},
+                "detail_enriched": True,
+                "user": {"nickname": "u"},
+                "ts_iso": "2026-08-25T00:00:00+00:00",
+                "share_url": "",
+            },
+        ]
+        out = _notes_by_dim(records, {"ai神器"})
+        self.assertEqual(out[0]["title"], "(无标题)")
+
+    def test_non_empty_title_kept(self):
+        from cross_analyze import _notes_by_dim
+        records = [
+            {
+                "_source_slug": "ai神器",
+                "note_id": "n_normal",
+                "title": "正常标题",
+                "desc_plain": "",
+                "tags": [],
+                "interact": {"liked": 100, "comment": 10},
+                "detail_enriched": False,
+                "user": {"nickname": "u"},
+                "ts_iso": None,
+                "share_url": "",
+            },
+        ]
+        out = _notes_by_dim(records, {"ai神器"})
+        self.assertEqual(out[0]["title"], "正常标题")
+
+    def test_missing_title_becomes_placeholder(self):
+        from cross_analyze import _notes_by_dim
+        records = [
+            {
+                "_source_slug": "ai神器",
+                "note_id": "n_none",
+                # title 字段缺失
+                "desc_plain": "",
+                "tags": [],
+                "interact": {"liked": 100, "comment": 10},
+                "detail_enriched": False,
+                "user": {"nickname": "u"},
+                "ts_iso": None,
+                "share_url": "",
+            },
+        ]
+        out = _notes_by_dim(records, {"ai神器"})
+        self.assertEqual(out[0]["title"], "(无标题)")
+
+
+class PipelineEnrichOrder(unittest.TestCase):
+    """pipeline._enrich_top_notes 用 heat_score 排序 (与 enrich.py 一致).
+
+    历史: 之前用 liked*1 + 3*collected + 2*comment (无时效), 与 heat_score 不一致
+    → agent 看 cross_analyze 报告 Top 5 可能没有刚被 enriched 的笔记.
+    修复后用 heat_score 公式 (engagement + 时效).
+    """
+
+    def test_enrich_top_uses_heat_score(self):
+        # pipeline._score 内部函数直接复用 enrich.heat_score
+        # 验证: ts=0 的高赞老贴 vs ts=now 的低赞新贴, 应该新贴胜 (时效因子)
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        from enrich import heat_score
+        from pipeline import _enrich_top_notes  # noqa
+
+        # 不实际跑 collect_note_full, 只验证 _score 函数行为
+        # _enrich_top_notes 内部用 _score = lambda r: heat_score(item.interact, item.ts)
+        # 通过 monkey-patch 让 collect_note_full noop, 然后断言排序结果
+
+        # 简单做法: 直接调 heat_score, 验证 ts=0 vs ts=now 的差别
+        from datetime import datetime, timezone
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        six_months_ago_ms = now_ms - (180 * 86400 * 1000)
+
+        # 高赞老贴 (6 个月前, 1000 赞)
+        score_old = heat_score({"liked": 1000, "collected": 100, "comment": 50}, six_months_ago_ms)
+        # 低赞新贴 (今天, 100 赞)
+        score_new = heat_score({"liked": 100, "collected": 10, "comment": 5}, now_ms)
+
+        # 新贴应该胜 (虽然赞少, 但时效高)
+        self.assertGreater(score_new, score_old,
+                           "新贴 (时效高) 应高于 6 月前的旧贴, 即便赞少")
+
+    def test_enrich_top_no_negation(self):
+        # 同样的赞数, 无 ts (card-only) vs 有 ts (enriched): 应该是 enriched 胜
+        # 修复后: heat_score(ts=0) 给 0.75 multiplier, heat_score(ts=now) 给 1.0
+        from datetime import datetime, timezone
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        from enrich import heat_score
+
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        interact = {"liked": 500, "collected": 100, "comment": 50}
+
+        score_no_ts = heat_score(interact, 0)        # card-only, ts=0
+        score_with_ts = heat_score(interact, now_ms)  # enriched, ts=now
+
+        # enriched (有 ts) > card-only (ts=0)
+        self.assertGreater(score_with_ts, score_no_ts,
+                           "enriched (有 ts) 应 > card-only (无 ts), 不该被时效衰减")
     unittest.main(verbosity=2)

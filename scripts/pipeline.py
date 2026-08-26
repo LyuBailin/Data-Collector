@@ -175,8 +175,11 @@ def _full_pipeline(run_dir: Path, rows: list, label: str = "") -> int:
 def _enrich_top_notes(client, rows, n, with_comments):
     """给热度 Top N 的搜索卡片补全正文/标签/时间, 可选评论; 返回扩展后的 rows。
 
-    热度 = liked*1 + collected*3 + comment*2 (与 enrich.heat_score 权重一致)。
-    补全用 collect_note_full (页面驱动, 一次导航拿笔记+评论)。
+    热度 = enrich.heat_score() — 与 enrich.py / cross_analyze 一致 (engagement + 时效).
+    历史: 之前用 liked*1 + collected*3 + comment*2 (无时效), 导致 'Top N enriched'
+    与 'Top N by heat_score' 不一致, agent 看聚合报告 Top 5 时可能没有刚被 enriched 的笔记.
+    改用统一公式.
+    补全用 collect_note_full (页面驱动, 一次导航拿笔记+评论).
 
     n 的语义:
       n > 0 : 补全热度 Top n
@@ -192,7 +195,8 @@ def _enrich_top_notes(client, rows, n, with_comments):
 
     def _score(r):
         it = (r.get("item") or {}).get("interact") or {}
-        return int(it.get("liked") or 0) * 1 + int(it.get("collected") or 0) * 3 + int(it.get("comment") or 0) * 2
+        ts = (r.get("item") or {}).get("ts") or 0
+        return enrich_mod.heat_score(it, ts)
 
     ranked = sorted(notes, key=_score, reverse=True)
     if n > 0:

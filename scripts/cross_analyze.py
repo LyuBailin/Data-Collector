@@ -178,7 +178,7 @@ def _notes_by_dim(records: List[dict], dim_slugs: Set[str]) -> List[dict]:
             continue
         out.append({
             "note_id": r.get("note_id"),
-            "title": r.get("title") or "",
+            "title": r.get("title") or "(无标题)",
             "desc_plain": r.get("desc_plain") or "",
             "tags": r.get("tags") or [],
             "liked": (r.get("interact") or {}).get("liked"),

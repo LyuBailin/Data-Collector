@@ -346,7 +346,7 @@ def aggregate(records):
         "top_notes": [
             {
                 "note_id": n.get("note_id"),
-                "title": n.get("title"),
+                "title": n.get("title") or "(无标题)",
                 "user": (n.get("user") or {}).get("nickname"),
                 "liked": (n.get("interact") or {}).get("liked"),
                 "heat_score": n.get("heat_score"),
@@ -375,7 +375,7 @@ def aggregate(records):
             {
                 "reason": r,
                 "note_id": n.get("note_id"),
-                "title": n.get("title"),
+                "title": n.get("title") or "(无标题)",
                 "ad_like_score": n.get("ad_like_score"),
                 "liked": (n.get("interact") or {}).get("liked"),
                 "short": n.get("is_short"),
@@ -476,7 +476,7 @@ def export_notes_csv(records, path):
         for n in notes:
             w.writerow({
                 "note_id": n.get("note_id"),
-                "title": n.get("title"),
+                "title": n.get("title") or "(无标题)",
                 "desc_plain": n.get("desc_plain") or "",
                 "tags": "|".join(n.get("tags") or []),
                 "type": n.get("type"),
