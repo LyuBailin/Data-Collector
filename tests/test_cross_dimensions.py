@@ -466,4 +466,47 @@ class PipelineEnrichOrder(unittest.TestCase):
         # enriched (有 ts) > card-only (ts=0)
         self.assertGreater(score_with_ts, score_no_ts,
                            "enriched (有 ts) 应 > card-only (无 ts), 不该被时效衰减")
+
+    def test_ts_zero_is_neutral_not_one_week_old(self):
+        """ts=0 给真中性 (multiplier=0.5), 不再假装'1 周前' (旧 multiplier=0.75).
+
+        历史: 旧 heat_score(ts=0) 给 recency=0.5 → multiplier=0.75, 让高 engagement
+        的 card-only 笔记比 6 月前的 enriched 老贴得分更高, 导致 pipeline enrich
+        Top 5 选了 card-only, enrichment 后 ts 填入真实日期, multiplier 跌, enriched
+        在最终 heat 排序里跌出 Top 5. 改为 recency=0 → multiplier=0.5 后,
+        card-only 与所有 enriched 笔记直接按 engagement (base) 排序.
+        """
+        from enrich import heat_score
+
+        interact = {"liked": 1000, "collected": 200, "comment": 50, "share": 100}
+        score_no_ts = heat_score(interact, 0)
+        # multiplier = 0.5, base = log1p(1000 + 600 + 100 + 400) = log1p(2100) ≈ 7.65
+        # score = 7.65 * 0.5 ≈ 3.82
+        self.assertLess(score_no_ts, 4.0, f"ts=0 multiplier 应=0.5, score={score_no_ts} 不应>4")
+        self.assertGreater(score_no_ts, 3.5, f"ts=0 multiplier 应=0.5, score={score_no_ts} 不应<3.5")
+
+    def test_engagement_ranking_consistent_with_or_without_ts(self):
+        """修复后: card-only (ts=0) 和 enriched (ts=now) 在同样 engagement 下应直接可比较.
+
+        含义: pipeline 用 heat_score 排序选 Top N enrich, 现在选出来的 Top N
+        在 enrichment 后 (real ts) 排名不变 (因为 multiplier 都是 0.5 baseline).
+        """
+        from datetime import datetime, timezone
+        from enrich import heat_score
+
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+
+        # 高 engagement card-only
+        card_only = {"liked": 5000, "collected": 1000, "comment": 100, "share": 500}
+        # 低 engagement 6 月前 enriched
+        old_enriched = {"liked": 1000, "collected": 200, "comment": 50, "share": 100}
+
+        score_card = heat_score(card_only, 0)
+        score_old = heat_score(old_enriched, now_ms - 180 * 86400 * 1000)
+
+        # engagement 高的 card-only 仍胜 (按 base 排序, 无时间优势)
+        self.assertGreater(score_card, score_old)
+
+
+if __name__ == "__main__":
     unittest.main(verbosity=2)

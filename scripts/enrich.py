@@ -213,6 +213,21 @@ def make_summary(text, max_chars=140):
 
 
 def heat_score(interact, ts_ms, now_ms=None):
+    """热度 = log1p(engagement) × 时效 multiplier ∈ [0.5, 1.0].
+
+    multiplier 公式: 0.5 + 0.5 * recency, recency ∈ [0.0, 1.0].
+      recency=1.0 → 1.0 (新鲜笔记)
+      recency=0.0 → 0.5 (中性 baseline, 永不归零)
+      recency=0.5 (旧 1 周笔记) → 0.75
+
+    ts_ms=0 (XHS 搜索卡片无发布时间, card-only notes) → recency=0.0 →
+    multiplier=0.5, 跟"很老"笔记同分. 这是关键 fix:
+      旧版 ts=0 给 recency=0.5 (相当于 '1 周前'), 让高 engagement 的 card-only 笔记
+      比 6 个月前的 enriched 老贴得分更高, 导致 pipeline enrich Top 5 (按 heat_score)
+      选了 card-only 后 enrichment 填入真实 ts, multiplier 跌到 0.5, 排位从 1-5 跌到 14-18,
+      跟 cross_analyze Top 5 完全不一致. 改为 0.5 后, card-only 与所有 enriched 笔记
+      直接按 engagement 排序, pipeline 选择的 Top 5 跟最终 heat_score Top 5 一致.
+    """
     if now_ms is None:
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     liked = interact.get("liked") or 0
@@ -221,7 +236,7 @@ def heat_score(interact, ts_ms, now_ms=None):
     share = interact.get("share") or 0
     base = math.log1p(max(0, liked) * 1 + max(0, collected) * 3 + max(0, comment) * 2 + max(0, share) * 4)
     if not ts_ms:
-        recency = 0.5
+        recency = 0.0  # 真中性, 不假装 "1 周前"
     else:
         age_days = max(0, (now_ms - ts_ms) / (1000 * 86400))
         recency = 1 / (1 + age_days / 7)
